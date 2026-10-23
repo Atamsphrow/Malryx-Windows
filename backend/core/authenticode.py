@@ -131,7 +131,14 @@ def _verify_windows(path: str) -> tuple[AuthStatus, int | None]:
         dwStateAction=1,     # WTD_STATEACTION_VERIFY
         hWVTStateData=None,
         pwszURLReference=None,
-        dwProvFlags=0,
+        # WTD_CACHE_ONLY_URL_RETRIEVAL (0x1000) : sans ce drapeau,
+        # WinVerifyTrust peut tenter des recuperations reseau (AIA)
+        # pendant la construction de chaine — plusieurs secondes par
+        # fichier quand le reseau repond lentement, ce qui rendait le
+        # scan STARTUP interminable (~800 fichiers). Le controle reste
+        # complet ; seul le telechargement de certificats intermediaires
+        # manquants est interdit (cache local uniquement).
+        dwProvFlags=0x1000,
         dwUIContext=0,
     )
     try:

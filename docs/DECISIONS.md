@@ -62,3 +62,14 @@ fonctions, sans s'arrêter à chaque jalon).
 - W4 run 40001062031 : UI_VERDICT PASS (analyze + tests + build Windows
   release, malryx.exe 91 648 octets) et BACKEND_EXE_VERDICT PASS
   (PyInstaller onefile répond sur /api/health). La paire livrable existe.
+
+## 2026-10-23 — W2 CLOS, triage W3 insuffisant
+
+- W2 run 40005574679 : REALTIME_VERDICT PASS — EICAR détecté par 2 moteurs,
+  mis en quarantaine en 0,81 s, fichier sain conservé, arrêt propre. Le
+  deadlock CloseHandle (prouvé par faulthandler) est corrigé par le passage
+  en I/O overlapped : chaque thread RDW possède et ferme ses handles.
+- W3 : le triage Authenticode n'a pas suffi (scan STARTUP toujours > 900 s).
+  Hypothèse principale : WinVerifyTrust tente des récupérations réseau
+  (AIA) pendant la construction de chaîne. Ajout de
+  WTD_CACHE_ONLY_URL_RETRIEVAL ; harnais durci (timeout isolé par scan).

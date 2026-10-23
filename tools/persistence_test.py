@@ -102,11 +102,22 @@ def part_b() -> tuple[bool, bool]:
     return persistence_ok, auth_ok
 
 
-def run_cli(*args: str, timeout: int = 900) -> tuple[int, str]:
-    proc = subprocess.run(
-        [sys.executable, "cli.py", *args],
-        cwd=BACKEND, capture_output=True, text=True, timeout=timeout,
-    )
+def run_cli(*args: str, timeout: int = 600) -> tuple[int, str]:
+    try:
+        proc = subprocess.run(
+            [sys.executable, "cli.py", *args],
+            cwd=BACKEND, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        def _txt(v: object) -> str:
+            if v is None:
+                return ""
+            return v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+
+        partial = _txt(exc.stdout) + _txt(exc.stderr)
+        print(f"TIMEOUT {timeout} s sur {args} ; sortie partielle :")
+        print(partial[-2000:])
+        return 124, partial
     return proc.returncode, proc.stdout + proc.stderr
 
 
