@@ -9,6 +9,7 @@ on:
     paths:
       - "backend/**"
       - "tools/hardening_test.py"
+      - "tools/realtime_robust_test.py"
       - ".github/workflows/w5-hardening.yml"
 
 jobs:
@@ -61,6 +62,12 @@ jobs:
           }
           if (-not $ok) { Write-Host "ECHEC: clamd sans PONG apres 600 s"; exit 1 }
           Write-Host "CLAMD_TCP_VERDICT: PASS"
+
+      - name: Robustesse temps reel (gros fichier, ecriture en 2 fois, renommage)
+        shell: pwsh
+        run: |
+          python -u tools/realtime_robust_test.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Durcissement (FP, restauration, bruit startup)
         shell: pwsh

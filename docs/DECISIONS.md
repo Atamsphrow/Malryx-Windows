@@ -96,3 +96,18 @@ fonctions, sans s'arrêter à chaque jalon).
 - cmd.exe ressort « unsigned » sur le runner (signature catalogue non
   vue par WinVerifyTrust dans ce contexte) : le triage reste utile,
   mais le correctif moteur est LA correction principale.
+
+## 2026-10-24 — W3 CLOS, W5 quasi clos
+
+- W3 run 40038831437 : TOUT PASS — persistance, Authenticode, STARTUP
+  (EICAR planté détecté + menace « non signé » présente), SMART.
+  Après correctif moteur : `moteur clamav` 11,98 s → ~0,01 s/fichier.
+- Régressions post-correctif : w1 40038826746, w2 40038826756,
+  w4 40038826824 — tous verts.
+- W5 run 40038826809 : AUDIT + FP + RESTORE (SHA-256 identique) +
+  STARTUP_NOISE tous PASS, avec un scan STARTUP qui va désormais au
+  bout. Ajout du test de robustesse temps réel (gros fichier 300 Mo,
+  EICAR écrit en deux fois, renommage sain) — vert en local (inotify),
+  verdict Windows/RDW en CI.
+- Reste W5 : inspection REA des artefacts construits (avec W6, sur
+  l'installateur final) + replica-diff final features.csv.
