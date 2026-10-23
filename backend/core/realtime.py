@@ -100,7 +100,6 @@ class RealtimeWatcher:
 
     def stop(self) -> None:
         self._running = False
-        self._close_rdw_handles()
         if self._task:
             self._task.cancel()
             self._task = None
@@ -200,7 +199,6 @@ class RealtimeWatcher:
             log.warning("Aucun dossier a surveiller, bascule vers polling")
             await self._run_polling_loop()
             return
-        self._rdw_handles: list[int] = []
         threads = [
             threading.Thread(
                 target=self._rdw_watch_dir, args=(d,), daemon=True,
@@ -215,23 +213,33 @@ class RealtimeWatcher:
             while self._running:
                 await asyncio.sleep(0.5)
         finally:
-            self._close_rdw_handles()
-
-    def _close_rdw_handles(self) -> None:
-        handles = getattr(self, "_rdw_handles", [])
-        if not handles:
-            return
-        try:
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            for handle in handles:
-                kernel32.CloseHandle(handle)
-        except Exception:
-            pass
-        self._rdw_handles = []
+            # Chaque thread RDW ferme SES handles (voir _rdw_watch_dir) :
+            # fermer un handle depuis un autre thread pendant un appel
+            # synchrone ReadDirectoryChangesW BLOQUE (constate en CI le
+            # 2026-10-23 grace a faulthandler : deadlock dans CloseHandle).
+            for thread in threads:
+                thread.join(timeout=3.0)
 
     def _rdw_watch_dir(self, directory: str) -> None:
+        """Surveille UN dossier via ReadDirectoryChangesW en I/O overlapped.
+
+        Chaque thread possede son handle et son evenement, et il est le
+        SEUL a les fermer. L'attente est bornee (250 ms) et re-verifie
+        _running : l'arret est donc propre et rapide, sans jamais fermer
+        un handle depuis un autre thread (deadlock CloseHandle constate
+        en CI le 2026-10-23 avec la version synchrone).
+        """
         import ctypes
         from ctypes import wintypes
+
+        class OVERLAPPED(ctypes.Structure):
+            _fields_ = [
+                ("Internal", ctypes.c_void_p),
+                ("InternalHigh", ctypes.c_void_p),
+                ("Offset", wintypes.DWORD),
+                ("OffsetHigh", wintypes.DWORD),
+                ("hEvent", wintypes.HANDLE),
+            ]
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateFileW.restype = wintypes.HANDLE
@@ -242,20 +250,41 @@ class RealtimeWatcher:
         kernel32.ReadDirectoryChangesW.restype = wintypes.BOOL
         kernel32.ReadDirectoryChangesW.argtypes = [
             wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, wintypes.BOOL,
-            wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p,
-            ctypes.c_void_p,
+            wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+            ctypes.c_void_p, ctypes.c_void_p,
         ]
+        kernel32.CreateEventW.restype = wintypes.HANDLE
+        kernel32.CreateEventW.argtypes = [
+            ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR,
+        ]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.GetOverlappedResult.restype = wintypes.BOOL
+        kernel32.GetOverlappedResult.argtypes = [
+            wintypes.HANDLE, ctypes.c_void_p,
+            ctypes.POINTER(wintypes.DWORD), wintypes.BOOL,
+        ]
+        kernel32.CancelIoEx.restype = wintypes.BOOL
+        kernel32.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+        kernel32.ResetEvent.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
         FILE_LIST_DIRECTORY = 0x0001
         FILE_SHARE_ALL = 0x00000001 | 0x00000002 | 0x00000004
         OPEN_EXISTING = 3
         FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
-        NOTIFY_FILTER = 0x00000001 | 0x00000010 | 0x00000100  # nom, ecriture, creation
+        FILE_FLAG_OVERLAPPED = 0x40000000
+        NOTIFY_FILTER = 0x00000001 | 0x00000010 | 0x00000100
+        WAIT_OBJECT_0 = 0
+        WAIT_TIMEOUT = 0x102
+        ERROR_IO_PENDING = 997
         # Actions : 1=ADDED 3=MODIFIED 5=RENAMED_NEW_NAME
         INTERESTING = {1, 3, 5}
 
         handle = kernel32.CreateFileW(
             directory, FILE_LIST_DIRECTORY, FILE_SHARE_ALL, None,
-            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+            None,
         )
         if handle == wintypes.HANDLE(-1).value:
             log.warning(
@@ -263,19 +292,44 @@ class RealtimeWatcher:
                 directory, ctypes.get_last_error(),
             )
             return
-        self._rdw_handles.append(handle)
+        event = kernel32.CreateEventW(None, True, False, None)
+        overlapped = OVERLAPPED()
+        overlapped.hEvent = event
         buffer = ctypes.create_string_buffer(64 * 1024)
-        returned = wintypes.DWORD(0)
+        pending = False
         try:
             while self._running:
-                ok = kernel32.ReadDirectoryChangesW(
-                    handle, buffer, len(buffer), False, NOTIFY_FILTER,
-                    ctypes.byref(returned), None, None,
-                )
-                if not ok or returned.value == 0:
+                if not pending:
+                    kernel32.ResetEvent(event)
+                    ctypes.set_last_error(0)
+                    ok = kernel32.ReadDirectoryChangesW(
+                        handle, buffer, len(buffer), False, NOTIFY_FILTER,
+                        None, ctypes.byref(overlapped), None,
+                    )
+                    if not ok and ctypes.get_last_error() != ERROR_IO_PENDING:
+                        log.debug(
+                            "ReadDirectoryChangesW en echec sur %s (erreur %d)",
+                            directory, ctypes.get_last_error(),
+                        )
+                        break
+                    pending = True
+                wait = kernel32.WaitForSingleObject(event, 250)
+                if wait == WAIT_TIMEOUT:
+                    continue
+                if wait != WAIT_OBJECT_0:
                     break
+                transferred = wintypes.DWORD(0)
+                if not kernel32.GetOverlappedResult(
+                    handle, ctypes.byref(overlapped),
+                    ctypes.byref(transferred), False,
+                ):
+                    pending = False
+                    continue
+                pending = False
+                if transferred.value == 0:
+                    continue
                 offset = 0
-                raw = buffer.raw[: returned.value]
+                raw = buffer.raw[: transferred.value]
                 while offset + 12 <= len(raw):
                     next_offset, action, name_len = struct.unpack_from(
                         "III", raw, offset
@@ -294,6 +348,12 @@ class RealtimeWatcher:
                     offset += next_offset
         except Exception as exc:
             log.debug("Erreur ReadDirectoryChangesW sur %s : %s", directory, exc)
+        finally:
+            if pending:
+                kernel32.CancelIoEx(handle, ctypes.byref(overlapped))
+                kernel32.WaitForSingleObject(event, 1000)
+            kernel32.CloseHandle(event)
+            kernel32.CloseHandle(handle)
 
     def _scan_when_stable(self, path: str) -> None:
         """Attend que le fichier cesse de grossir, puis le fait scanner.

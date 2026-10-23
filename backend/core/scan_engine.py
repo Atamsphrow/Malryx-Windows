@@ -581,6 +581,7 @@ class ScanManager:
             job.progress.files_scanned = result.files_scanned
             return
 
+        engines = self._engines_for_file(job, engines, path)
         ctx = FileContext(path, size=size)
         found: list[Threat] = []
         for engine in engines:
@@ -606,6 +607,40 @@ class ScanManager:
 
         for threat in found:
             self._register_threat(job, threat)
+
+    def _engines_for_file(
+        self, job: ScanJob, engines: list[Engine], path: str
+    ) -> list[Engine]:
+        """Triage des scans STARTUP/SMART sous Windows (W3).
+
+        Un scan des points de demarrage couvre ~800 fichiers systeme
+        (services, taches) : les passer tous au scan complet prend plus
+        de 15 minutes (constate en CI le 2026-10-23, timeout du test).
+        Comme les antivirus reels, on fait confiance a la cryptographie :
+        un fichier sous le dossier Windows dont la signature Authenticode
+        est VALIDE est compte comme controle sans scan de contenu (la
+        signature verifie deja son integrite). Tout le reste — non signe,
+        signature invalide, hors dossier systeme — passe par tous les
+        moteurs. Les scans PATH/FULL ne sont pas affectes.
+        """
+        if not IS_WINDOWS or job.result.type not in (
+            ScanType.STARTUP,
+            ScanType.SMART,
+        ):
+            return engines
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        try:
+            if not os.path.abspath(path).lower().startswith(
+                os.path.abspath(system_root).lower() + os.sep
+            ):
+                return engines
+        except Exception:
+            return engines
+        from core.authenticode import AuthStatus, verify_signature
+
+        if verify_signature(path) == AuthStatus.VALID:
+            return []
+        return engines
 
     def _register_threat(self, job: ScanJob, threat: Threat) -> None:
         result = job.result

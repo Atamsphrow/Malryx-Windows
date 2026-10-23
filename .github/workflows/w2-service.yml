@@ -67,5 +67,5 @@ jobs:
       - name: Temps reel (EICAR depose -> quarantaine < 10 s)
         shell: pwsh
         run: |
-          python tools/realtime_test.py
+          python -u tools/realtime_test.py
           if ($LASTEXITCODE -ne 0) { exit 1 }

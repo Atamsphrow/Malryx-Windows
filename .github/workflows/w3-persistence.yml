@@ -63,5 +63,5 @@ jobs:
       - name: Persistance + Authenticode + scans STARTUP/SMART
         shell: pwsh
         run: |
-          python tools/persistence_test.py
+          python -u tools/persistence_test.py
           if ($LASTEXITCODE -ne 0) { exit 1 }
