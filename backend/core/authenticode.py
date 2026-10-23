@@ -23,6 +23,7 @@ import sys
 from enum import Enum
 
 _cache: dict[tuple[str, int, int], "AuthStatus"] = {}
+_code_cache: dict[tuple[str, int, int], int | None] = {}
 
 
 class AuthStatus(str, Enum):
@@ -32,11 +33,15 @@ class AuthStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
-# Codes de retour WinVerifyTrust (winerror.h / trust.h)
+# Codes de retour WinVerifyTrust (winerror.h / trust.h) consideres
+# « aucune signature verifiable » :
 _TRUST_CODES_UNSIGNED = {
-    0x800B0100,  # TRUST_E_NOSIGNATURE
+    0x800B0100,  # TRUST_E_NOSIGNATURE : PE sans signature
     0x800B0110,  # TRUST_E_NOSIGNATURE (variante)
-    0x800B010E,  # TRUST_E_NO_SIGNER_CERT - traite comme non signe ici
+    0x800B010E,  # TRUST_E_NO_SIGNER_CERT
+    0x800B0003,  # TRUST_E_SUBJECT_FORM_UNKNOWN : le fichier n'est meme
+    # pas un format d'executable reconnu (ex. texte renomme .exe) —
+    # constate en CI le 2026-10-23 sur un faux .exe.
 }
 
 
@@ -46,22 +51,30 @@ def _to_signed(code: int) -> int:
 
 def verify_signature(path: str) -> AuthStatus:
     """Statut Authenticode d'un fichier. UNKNOWN hors Windows."""
+    return verify_signature_debug(path)[0]
+
+
+def verify_signature_debug(path: str) -> tuple[AuthStatus, int | None]:
+    """Comme verify_signature, avec le code WinVerifyTrust brut
+    (diagnostics et tests). Le code est None hors Windows / sur erreur
+    de lecture du fichier."""
     if sys.platform != "win32":
-        return AuthStatus.UNKNOWN
+        return AuthStatus.UNKNOWN, None
     try:
         stat = os.stat(path)
         key = (path.lower(), stat.st_size, int(stat.st_mtime))
     except OSError:
-        return AuthStatus.UNKNOWN
+        return AuthStatus.UNKNOWN, None
     cached = _cache.get(key)
     if cached is not None:
-        return cached
-    status = _verify_windows(path)
+        return cached, _code_cache.get(key)
+    status, code = _verify_windows(path)
     _cache[key] = status
-    return status
+    _code_cache[key] = code
+    return status, code
 
 
-def _verify_windows(path: str) -> AuthStatus:
+def _verify_windows(path: str) -> tuple[AuthStatus, int | None]:
     from ctypes import wintypes
 
     class GUID(ctypes.Structure):
@@ -134,14 +147,14 @@ def _verify_windows(path: str) -> AuthStatus:
         data.dwStateAction = 2
         wintrust.WinVerifyTrust(None, ctypes.byref(action), ctypes.byref(data))
     except Exception:
-        return AuthStatus.UNKNOWN
+        return AuthStatus.UNKNOWN, None
 
     code = result & 0xFFFFFFFF
     if code == 0:
-        return AuthStatus.VALID
+        return AuthStatus.VALID, code
     if code in _TRUST_CODES_UNSIGNED:
-        return AuthStatus.UNSIGNED
-    return AuthStatus.INVALID
+        return AuthStatus.UNSIGNED, code
+    return AuthStatus.INVALID, code
 
 
 # Dossiers ou un executable de demarrage non signe est un vrai signal

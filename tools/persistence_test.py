@@ -71,7 +71,11 @@ def part_a() -> bool:
 
 
 def part_b() -> tuple[bool, bool]:
-    from core.authenticode import AuthStatus, verify_signature
+    from core.authenticode import (
+        AuthStatus,
+        verify_signature,
+        verify_signature_debug,
+    )
     from core.persistence_windows import list_persistence_entries
 
     entries = list_persistence_entries()
@@ -86,8 +90,10 @@ def part_b() -> tuple[bool, bool]:
     print(f"Authenticode explorer.exe : {status_explorer}")
     fake = Path(tempfile.gettempdir()) / "malryx-w3-fake.exe"
     fake.write_text("ceci n'est pas un vrai PE", encoding="utf-8")
-    status_fake = verify_signature(str(fake))
-    print(f"Authenticode faux exe Temp : {status_fake}")
+    status_fake, code_fake = verify_signature_debug(str(fake))
+    print(f"Authenticode faux exe Temp : {status_fake} "
+          f"(code WinVerifyTrust {code_fake:#010x})" if code_fake is not None
+          else f"Authenticode faux exe Temp : {status_fake}")
     fake.unlink(missing_ok=True)
     auth_ok = (
         status_explorer == AuthStatus.VALID
