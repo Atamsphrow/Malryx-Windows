@@ -51,3 +51,14 @@ fonctions, sans s'arrêter à chaque jalon).
   pywin32 ; toasts WinRT via PowerShell (best-effort, session 0 = limite
   v1 connue) ; dossier Démarrage surveillé ; surcharge des dossiers par
   MALRYX_WATCH_DIRS (service + tests).
+
+## 2026-10-23 — Verdicts W3 (1er passage) et W4
+
+- W3 run 39999148019 : PERSISTENCE PASS (687 services, 88 tâches énumérés),
+  Authenticode explorer.exe VALID. Échecs : workflow généré sans l'étape
+  pip install (CLI sans pydantic) et faux .exe texte classé INVALID —
+  TRUST_E_SUBJECT_FORM_UNKNOWN (0x800B0003) désormais classé « non signé »
+  (aucune signature vérifiable). Correctifs poussés (fa90e69), re-run en cours.
+- W4 run 40001062031 : UI_VERDICT PASS (analyze + tests + build Windows
+  release, malryx.exe 91 648 octets) et BACKEND_EXE_VERDICT PASS
+  (PyInstaller onefile répond sur /api/health). La paire livrable existe.
