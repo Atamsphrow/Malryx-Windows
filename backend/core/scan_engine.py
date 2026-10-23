@@ -33,6 +33,7 @@ from core.events import EventBus
 from core.models import (
     DetectionSource,
     ScanOptions,
+    Severity,
     ScanProgress,
     ScanRequest,
     ScanResult,
@@ -259,8 +260,14 @@ class ScanManager:
         if request.type == ScanType.FULL_SYSTEM:
             return ["/"] if not IS_WINDOWS else [os.path.abspath(os.sep)]
         if request.type == ScanType.STARTUP:
+            if IS_WINDOWS:
+                from core.persistence_windows import persistence_targets
+
+                return persistence_targets()
             candidates = STARTUP_TARGETS + _user_startup_targets()
             return [p for p in candidates if os.path.exists(p)]
+        if request.type == ScanType.SMART:
+            return self._smart_targets()
         if request.type == ScanType.MEMORY:
             return ["processus_memoire"]
         if request.type == ScanType.PACKAGES:
@@ -330,8 +337,11 @@ class ScanManager:
                 ScanType.FULL_SYSTEM,
                 ScanType.USB,
                 ScanType.STARTUP,
+                ScanType.SMART,
             ):
                 self._run_file_scan(job, engines)
+                if IS_WINDOWS and result.type in (ScanType.STARTUP, ScanType.SMART):
+                    self._check_unsigned_persistence(job)
             elif result.type == ScanType.MEMORY:
                 self._run_memory_scan(job, engines)
             elif result.type == ScanType.PACKAGES:
@@ -385,6 +395,98 @@ class ScanManager:
             ]
             for scan_id in expired:
                 del self._jobs[scan_id]
+
+    # -- Smart Scan et persistance Windows (W3) ---------------------------- #
+
+    def _smart_targets(self) -> list[str]:
+        """Zones critiques facon Smart Scan : executables des processus en
+        cours, cibles de persistance, Temp et Telechargements."""
+        targets: list[str] = []
+        seen: set[str] = set()
+
+        def add(path: str | None) -> None:
+            if not path or not os.path.exists(path):
+                return
+            key = os.path.abspath(path).lower()
+            if key not in seen:
+                seen.add(key)
+                targets.append(path)
+
+        if IS_WINDOWS:
+            from core.persistence_windows import persistence_targets
+
+            for target in persistence_targets():
+                add(target)
+            try:
+                from core.process_scanner import list_running_processes
+
+                for proc in list_running_processes():
+                    add(proc.exe_path)
+            except Exception as exc:
+                log.debug("smart scan : processus non listes (%s)", exc)
+        home = Path.home()
+        for folder in (home / "Downloads", home / "Téléchargements"):
+            add(str(folder))
+        temp = os.environ.get("TEMP") if IS_WINDOWS else "/tmp"
+        add(temp)
+        return targets
+
+    def _check_unsigned_persistence(self, job: ScanJob) -> None:
+        """Signale les entrees de persistance pointant vers un executable
+        NON SIGNE dans un dossier a risque (Temp, Telechargements...).
+
+        Un logiciel legitime installe un binaire signe dans Program Files ;
+        un point de demarrage non signe dans Temp est un signal fort,
+        presente comme heuristique (MEDIUM), jamais comme certitude.
+        """
+        from core.authenticode import (
+            AuthStatus,
+            is_risky_unsigned_location,
+            verify_signature,
+        )
+        from core.persistence_windows import list_persistence_entries
+
+        reported: set[str] = set()
+        for entry in list_persistence_entries():
+            if not entry.target or not os.path.isfile(entry.target):
+                continue
+            key = entry.target.lower()
+            if key in reported:
+                continue
+            if verify_signature(entry.target) != AuthStatus.UNSIGNED:
+                continue
+            if not is_risky_unsigned_location(entry.target):
+                continue
+            reported.add(key)
+            try:
+                size = os.path.getsize(entry.target)
+            except OSError:
+                size = None
+            self._register_threat(
+                job,
+                Threat(
+                    path=entry.target,
+                    name=(
+                        "Persistance : executable non signe dans un "
+                        "dossier a risque"
+                    ),
+                    severity=Severity.MEDIUM,
+                    source=DetectionSource.HEURISTIC,
+                    size=size,
+                    details={
+                        "persistence_kind": entry.kind,
+                        "persistence_name": entry.name,
+                        "persistence_location": entry.location,
+                        "command": entry.command,
+                        "authenticode": AuthStatus.UNSIGNED.value,
+                        "note": (
+                            "Point de demarrage automatique vers un "
+                            "executable sans signature Authenticode, dans "
+                            "un dossier en ecriture libre. A verifier."
+                        ),
+                    },
+                ),
+            )
 
     def _run_file_scan(self, job: ScanJob, engines: list[Engine]) -> None:
         options = job.options

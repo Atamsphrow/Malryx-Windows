@@ -1,0 +1,63 @@
+# W3 Malryx for Windows - persistance Windows + Authenticode + Smart Scan.
+# Declenchement manuel ou sur push touchant le backend / ce test.
+name: w3-persistence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "tools/persistence_test.py"
+      - "tools/clamd_tcp_test.py"
+      - ".github/workflows/w3-persistence.yml"
+
+jobs:
+  w3:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compilation backend
+        shell: pwsh
+        run: |
+          python -m compileall -q backend
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "COMPILE_VERDICT: PASS"
+
+      - name: ClamAV (installation + demarrage TCP)
+        shell: pwsh
+        run: |
+          choco install clamav -y --no-progress
+          $clamd = Get-ChildItem -Path "C:\Program Files\ClamAV","C:\ProgramData\chocolatey\lib" -Filter clamd.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $clamd) { Write-Host "ECHEC: clamd.exe introuvable apres installation"; exit 1 }
+          $clamDir = $clamd.Directory.FullName
+          Write-Host "clamd trouve : $($clamd.FullName)"
+          $db = "C:\ProgramData\ClamAV\db"
+          New-Item -ItemType Directory -Force $db | Out-Null
+          $dbConf = $db -replace "\\","/"
+          @("DatabaseDirectory $dbConf","TCPSocket 3310","TCPAddr 127.0.0.1","LogFile C:/ProgramData/ClamAV/clamd.log","Foreground yes") | Out-File "$clamDir\clamd.conf" -Encoding ascii
+          @("DatabaseDirectory $dbConf","DatabaseMirror database.clamav.net","Checks 1") | Out-File "$clamDir\freshclam.conf" -Encoding ascii
+          & "$clamDir\freshclam.exe" --config-file="$clamDir\freshclam.conf"
+          try { Add-MpPreference -ExclusionPath $clamDir,$db -ErrorAction Stop; Write-Host "exclusions Defender posees" } catch { Write-Host "exclusions Defender impossibles : $_" }
+          Start-Process -FilePath $clamd.FullName -ArgumentList "--config-file=`"$clamDir\clamd.conf`"" -WindowStyle Hidden
+          $ok = $false
+          foreach ($i in 1..20) {
+            Start-Sleep -Seconds 30
+            python tools/clamd_tcp_test.py 127.0.0.1 3310 5
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            Write-Host "--- attente clamd, essai $i/20"
+          }
+          if (-not $ok) { Write-Host "ECHEC: clamd sans PONG apres 600 s"; exit 1 }
+          Write-Host "CLAMD_TCP_VERDICT: PASS"
+
+      - name: Temps reel (EICAR depose -> quarantaine < 10 s)
+        shell: pwsh
+        run: |
+          python tools/persistence_test.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }

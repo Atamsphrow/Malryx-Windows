@@ -38,6 +38,7 @@ class ScanType(str, Enum):
     USB = "usb"                    # 4.5 media amovible
     ANDROID = "android"            # 4.2 via ADB / MTP
     WINDOWS_REMOTE = "windows"     # 4.3 SMB / agent
+    SMART = "smart"                # W3 : zones critiques (processus, persistance, Temp, Telechargements)
     LINUX_REMOTE = "linux_remote"  # 4.4 SSH / agent
 
 
