@@ -56,6 +56,13 @@ async def scenario(state, watch_dir: Path) -> tuple[bool, float]:
 
 
 def main() -> int:
+    # Watchdog : si le scenario se bloque quelque part, on veut savoir OU
+    # (piles de tous les threads dans les logs CI) plutot qu'un run qui
+    # pend jusqu'au timeout GitHub. Ajoute apres le 1er passage W2, dont
+    # l'etape temps reel ne rendait pas la main.
+    import faulthandler
+
+    faulthandler.dump_traceback_later(240, exit=True)
     watch_dir = Path(tempfile.mkdtemp(prefix="malryx-w2-watch-"))
     os.environ["MALRYX_WATCH_DIRS"] = str(watch_dir)
     print(f"dossier surveille : {watch_dir}")
