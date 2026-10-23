@@ -1,0 +1,62 @@
+# W1 Malryx for Windows - port du moteur sous Windows.
+# Declenchement manuel ou sur push touchant le backend / ce test.
+# PAS de continue-on-error : un echec doit faire echouer le run, le verdict
+# se lit dans les logs (DETECTION_VERDICT), jamais dans la seule conclusion.
+name: w1-backend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "tools/detection_test.py"
+      - "tools/clamd_tcp_test.py"
+      - ".github/workflows/w1-backend.yml"
+
+jobs:
+  w1:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependances backend
+        shell: pwsh
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Compilation Python du backend
+        shell: pwsh
+        run: |
+          python -m compileall -q backend
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "COMPILE_VERDICT: PASS"
+
+      - name: ClamAV (installation + demarrage TCP)
+        shell: pwsh
+        run: |
+          choco install clamav -y --no-progress
+          $clamd = Get-ChildItem -Path "C:\Program Files\ClamAV","C:\ProgramData\chocolatey\lib" -Filter clamd.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $clamd) { Write-Host "ECHEC: clamd.exe introuvable apres installation"; exit 1 }
+          $clamDir = $clamd.Directory.FullName
+          Write-Host "clamd trouve : $($clamd.FullName)"
+          $db = "C:\ProgramData\ClamAV\db"
+          New-Item -ItemType Directory -Force $db | Out-Null
+          $dbConf = $db -replace "\\","/"
+          @("DatabaseDirectory $dbConf","TCPSocket 3310","TCPAddr 127.0.0.1","LogFile C:/ProgramData/ClamAV/clamd.log","Foreground yes") | Out-File "$clamDir\clamd.conf" -Encoding ascii
+          @("DatabaseDirectory $dbConf","DatabaseMirror database.clamav.net","Checks 1") | Out-File "$clamDir\freshclam.conf" -Encoding ascii
+          & "$clamDir\freshclam.exe" --config-file="$clamDir\freshclam.conf"
+          Start-Process -FilePath $clamd.FullName -ArgumentList "--config-file=`"$clamDir\clamd.conf`"" -WindowStyle Hidden
+          python tools/clamd_tcp_test.py 127.0.0.1 3310 240
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "CLAMD_TCP_VERDICT: PASS"
+
+      - name: Detections de bout en bout (EICAR + heuristiques)
+        shell: pwsh
+        run: |
+          python tools/detection_test.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
