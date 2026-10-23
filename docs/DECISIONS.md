@@ -82,3 +82,17 @@ fonctions, sans s'arrêter à chaque jalon).
   Triage étendu : dans STARTUP/SMART, tout fichier à signature VALIDE
   est contrôlé par sa signature seule, quel que soit le dossier ; les
   non signés gardent le scan complet. PATH/FULL inchangés.
+
+## 2026-10-24 — Cause racine W3 trouvée (sondes 1 et 2)
+
+- Sonde 1 : énumération 104 cibles en 1,2 s ; verify_signature total
+  1,55 s ; scan complet des 64 non-signés = 842 s (plancher ~12 s/fichier).
+- Sonde 2 : `_scan_instream` seul = 0,53 s ; `scan()` complet = 11,98 s.
+  Cause : `_scan_instream` rendait None pour « propre » comme pour
+  « non concluant », donc chaque fichier propre déclenchait AUSSI le
+  repli `clamscan.exe`, qui recharge toute la base (~12 s). Corrigé :
+  INSTREAM rend (verdict, conclusif) ; le binaire ne sert que si le
+  daemon n'a pas tranché (ou fichier > 25 Mo).
+- cmd.exe ressort « unsigned » sur le runner (signature catalogue non
+  vue par WinVerifyTrust dans ce contexte) : le triage reste utile,
+  mais le correctif moteur est LA correction principale.

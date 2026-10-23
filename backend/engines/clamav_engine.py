@@ -193,9 +193,10 @@ class ClamAVEngine(Engine):
         if not self.enabled:
             return []
         verdict: str | None = None
+        conclusive = False
         if self.daemon_available():
-            verdict = self._scan_instream(ctx)
-        if verdict is None and self._clamscan:
+            verdict, conclusive = self._scan_instream(ctx)
+        if not conclusive and self._clamscan:
             if not self._warned_fallback and not self.daemon_available():
                 log.info(
                     "clamd introuvable, repli sur clamscan : les scans seront "
@@ -217,15 +218,30 @@ class ClamAVEngine(Engine):
             )
         ]
 
-    def _scan_instream(self, ctx: FileContext) -> str | None:
-        """Rend le nom de la signature, ou None si propre / non concluant."""
+    def _scan_instream(
+        self, ctx: FileContext
+    ) -> tuple[str | None, bool]:
+        """Interroge clamd en INSTREAM.
+
+        Rend (signature ou None, conclusif ?). Un fichier PROPRE donne
+        (None, True) ; un fichier infecte (nom, True) ; et (None, False)
+        quand le daemon n'a pas tranche (fichier trop gros pour le flux,
+        connexion impossible, erreur clamd) — seul ce dernier cas autorise
+        le repli sur le binaire clamscan.
+
+        Bug historique corrige ici (sonde W3, 2026-10-24) : la version
+        precedente rendait None pour « propre » comme pour « non
+        concluant », donc CHAQUE fichier propre payait en plus un scan
+        par le binaire clamscan, qui recharge toute la base de
+        signatures (~12 s par fichier ; 842 s pour 64 fichiers).
+        """
         if ctx.size > STREAM_MAX:
             # Trop gros pour un flux : on laisse clamscan s'en charger.
-            return None
+            return None, False
         with self._lock:
             sock = self._connect()
             if sock is None:
-                return None
+                return None, False
             try:
                 sock.sendall(b"zINSTREAM\0")
                 with open(ctx.path, "rb") as handle:
@@ -235,10 +251,27 @@ class ClamAVEngine(Engine):
                 response = sock.recv(8192).decode(errors="replace").strip("\0\n ")
             except (OSError, struct.error) as exc:
                 log.debug("INSTREAM echoue sur %s : %s", ctx.path, exc)
-                return None
+                return None, False
             finally:
                 sock.close()
-        return self._parse_verdict(response)
+        return self._parse_instream(response)
+
+    @staticmethod
+    def _parse_instream(response: str) -> tuple[str | None, bool]:
+        """Reponse INSTREAM : 'stream: OK', 'stream: NOM FOUND' ou erreur."""
+        for line in response.splitlines():
+            line = line.strip()
+            if line.endswith("FOUND"):
+                body = line[: -len("FOUND")].rstrip()
+                if ":" in body:
+                    body = body.rsplit(":", 1)[1]
+                return (body.strip() or "ClamAV-Detection"), True
+            if line.endswith("OK"):
+                return None, True
+            if line.endswith("ERROR"):
+                log.debug("clamav ERROR : %s", line)
+                return None, False
+        return None, False
 
     def _scan_binary(self, ctx: FileContext) -> str | None:
         result = run(
