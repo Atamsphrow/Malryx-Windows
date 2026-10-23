@@ -68,6 +68,6 @@ jobs:
           $ok = $false
           foreach ($i in 1..24) { Start-Sleep -Seconds 5; try { $t = Test-NetConnection -ComputerName 127.0.0.1 -Port 3310 -WarningAction SilentlyContinue; if ($t.TcpTestSucceeded) { $ok = $true; break } } catch {} }
           if (-not $ok) { Write-Host "ECHEC: port 3310 jamais ouvert"; exit 1 }
-          python tools/clamd_tcp_test.py
+          python tools/clamd_tcp_test.py 127.0.0.1 3310 240
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Write-Host "CLAMD_TCP_VERDICT: PASS"
