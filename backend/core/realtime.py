@@ -3,7 +3,8 @@
 Surveille les dossiers critiques et d'entree de donnees (Downloads, Temp, Autostart, Bureau) :
 - Sous Linux : inotify natif via ctypes (libc) pour une reaction instantanee a la
   creation / ecriture de fichiers (IN_CLOSE_WRITE, IN_MOVED_TO, IN_CREATE) sans dependance externe.
-- Repli / Windows : surveillance asynchrone par scrutation rapide des dossiers cles.
+- Sous Windows : ReadDirectoryChangesW natif via ctypes (kernel32), un thread
+  bloque par dossier surveille ; repli sur la scrutation si l'API echoue.
 
 Lorsqu'un nouveau fichier suspect ou modifie est detecte :
 - Il traverse le pipeline de moteurs (HashDB, ClamAV, YARA, Heuristiques, VirusTotal).
@@ -46,7 +47,17 @@ WATCH_MASK = IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE
 
 
 def get_monitored_directories() -> list[str]:
-    """Retourne la liste des dossiers a surveiller en temps reel."""
+    """Retourne la liste des dossiers a surveiller en temps reel.
+
+    Surcharge possible par la variable d'environnement MALRYX_WATCH_DIRS
+    (chemins separes par os.pathsep) : utilisee par le service et les tests.
+    """
+    override = os.environ.get("MALRYX_WATCH_DIRS")
+    if override:
+        return [
+            d for d in override.split(os.pathsep)
+            if d and Path(d).exists() and Path(d).is_dir()
+        ]
     home = Path.home()
     dirs: list[Path] = [
         home / "Downloads",
@@ -62,6 +73,13 @@ def get_monitored_directories() -> list[str]:
         temp = os.environ.get("TEMP")
         if temp:
             dirs.append(Path(temp))
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            # Dossier Demarrage de l'utilisateur : vecteur de persistance.
+            dirs.append(
+                Path(appdata) / "Microsoft" / "Windows" / "Start Menu"
+                / "Programs" / "Startup"
+            )
     return [str(d.resolve()) for d in dirs if d.exists() and d.is_dir()]
 
 
@@ -82,6 +100,7 @@ class RealtimeWatcher:
 
     def stop(self) -> None:
         self._running = False
+        self._close_rdw_handles()
         if self._task:
             self._task.cancel()
             self._task = None
@@ -92,6 +111,8 @@ class RealtimeWatcher:
         try:
             if IS_LINUX and self._can_use_inotify():
                 await self._run_inotify_loop()
+            elif IS_WINDOWS:
+                await self._run_rdw_loop()
             else:
                 await self._run_polling_loop()
         except asyncio.CancelledError:
@@ -163,6 +184,134 @@ class RealtimeWatcher:
                 if base_dir:
                     filepath = os.path.join(base_dir, name)
                     self._check_file_threat(filepath)
+
+    # -- Windows : ReadDirectoryChangesW ---------------------------------- #
+
+    async def _run_rdw_loop(self) -> None:
+        """Surveillance native Windows : un thread bloque par dossier.
+
+        Chaque thread appelle ReadDirectoryChangesW (synchrone) et transmet
+        les fichiers crees / renommes / modifies a _scan_when_stable, qui
+        attend la fin de l'ecriture avant de lancer le pipeline de moteurs.
+        Fermer les handles de dossier debloque les threads a l'arret.
+        """
+        watch_dirs = get_monitored_directories()
+        if not watch_dirs:
+            log.warning("Aucun dossier a surveiller, bascule vers polling")
+            await self._run_polling_loop()
+            return
+        self._rdw_handles: list[int] = []
+        threads = [
+            threading.Thread(
+                target=self._rdw_watch_dir, args=(d,), daemon=True,
+                name=f"malryx-rdw-{i}",
+            )
+            for i, d in enumerate(watch_dirs)
+        ]
+        for thread in threads:
+            thread.start()
+        log.info("ReadDirectoryChangesW actif sur %d repertoires", len(threads))
+        try:
+            while self._running:
+                await asyncio.sleep(0.5)
+        finally:
+            self._close_rdw_handles()
+
+    def _close_rdw_handles(self) -> None:
+        handles = getattr(self, "_rdw_handles", [])
+        if not handles:
+            return
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            for handle in handles:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+        self._rdw_handles = []
+
+    def _rdw_watch_dir(self, directory: str) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+            ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        ]
+        kernel32.ReadDirectoryChangesW.restype = wintypes.BOOL
+        kernel32.ReadDirectoryChangesW.argtypes = [
+            wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, wintypes.BOOL,
+            wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        FILE_LIST_DIRECTORY = 0x0001
+        FILE_SHARE_ALL = 0x00000001 | 0x00000002 | 0x00000004
+        OPEN_EXISTING = 3
+        FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+        NOTIFY_FILTER = 0x00000001 | 0x00000010 | 0x00000100  # nom, ecriture, creation
+        # Actions : 1=ADDED 3=MODIFIED 5=RENAMED_NEW_NAME
+        INTERESTING = {1, 3, 5}
+
+        handle = kernel32.CreateFileW(
+            directory, FILE_LIST_DIRECTORY, FILE_SHARE_ALL, None,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None,
+        )
+        if handle == wintypes.HANDLE(-1).value:
+            log.warning(
+                "ReadDirectoryChangesW: CreateFileW a echoue sur %s (erreur %d)",
+                directory, ctypes.get_last_error(),
+            )
+            return
+        self._rdw_handles.append(handle)
+        buffer = ctypes.create_string_buffer(64 * 1024)
+        returned = wintypes.DWORD(0)
+        try:
+            while self._running:
+                ok = kernel32.ReadDirectoryChangesW(
+                    handle, buffer, len(buffer), False, NOTIFY_FILTER,
+                    ctypes.byref(returned), None, None,
+                )
+                if not ok or returned.value == 0:
+                    break
+                offset = 0
+                raw = buffer.raw[: returned.value]
+                while offset + 12 <= len(raw):
+                    next_offset, action, name_len = struct.unpack_from(
+                        "III", raw, offset
+                    )
+                    name = raw[offset + 12 : offset + 12 + name_len].decode(
+                        "utf-16-le", errors="replace"
+                    )
+                    if action in INTERESTING and name:
+                        threading.Thread(
+                            target=self._scan_when_stable,
+                            args=(os.path.join(directory, name),),
+                            daemon=True,
+                        ).start()
+                    if next_offset == 0:
+                        break
+                    offset += next_offset
+        except Exception as exc:
+            log.debug("Erreur ReadDirectoryChangesW sur %s : %s", directory, exc)
+
+    def _scan_when_stable(self, path: str) -> None:
+        """Attend que le fichier cesse de grossir, puis le fait scanner.
+
+        Evite de scanner un fichier encore en cours de telechargement /
+        copie (clamd recevrait un contenu tronque). Delai max ~5 s.
+        """
+        last_size = -1
+        for _ in range(10):
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                return
+            if size == last_size and size > 0:
+                break
+            last_size = size
+            time.sleep(0.5)
+        self._check_file_threat(path)
 
     async def _run_polling_loop(self) -> None:
         """Surveillance par scrutation (polling) sur dossiers cibles."""
@@ -255,5 +404,13 @@ class RealtimeWatcher:
                     events.EVT_SCAN_THREAT,
                     {"scan_id": "realtime", "threat": threat.model_dump(mode="json")},
                 )
+                # Toast systeme Windows (service sans UI ouverte comprise) :
+                # best-effort, n'echoue jamais le traitement de la menace.
+                try:
+                    from core.notify import notify_threat
+
+                    notify_threat(threat.name, threat.path, threat.quarantined)
+                except Exception:
+                    pass
         except Exception as exc:
             log.debug("Erreur analyse temps reel sur %s : %s", path, exc)

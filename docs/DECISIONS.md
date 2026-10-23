@@ -31,3 +31,23 @@ fonctions, sans s'arrêter à chaque jalon).
 - Le code Linux reste la référence de comportement (quarantaine
   bit-à-bit, pourcentage honnête, moteurs ordonnés) : on adapte,
   on ne réinvente pas.
+
+## 2026-10-23 (soir) — W0 et W1 clos, recette clamd/Defender
+- W0 clos : les 4 verdicts machine sont verts (détail dans W0_RAPPORT.md §4).
+- W1 clos : run `39995452363` vert de bout en bout — COMPILE PASS,
+  CLAMD_TCP PASS (PONG, ClamAV 1.5.4/28162), DETECTION PASS (EICAR nu,
+  zip, double extension ; fichier sain propre ; heuristiques dropper.ps1
+  et vssadmin seules).
+- Recette clamd sous Windows (apprise après 2 échecs WinError 10053) :
+  poser les exclusions Defender (dossier ClamAV + dossier des bases)
+  AVANT de démarrer clamd, sinon le chargement des signatures est
+  perturbé et le démon coupe les connexions. PONG ensuite en < 1 min.
+- Le run W0 n°3 (bloqué dans l'étape ClamAV, aucun journal lisible
+  pendant le job) a été annulé ; le run W1 rejouait le même test avec
+  journal clamd affiché — méthode à retenir : toujours instrumenter
+  l'étape qui peut pendre.
+- W2 : temps réel Windows = ReadDirectoryChangesW via ctypes (un thread
+  par dossier, scan après stabilisation de la taille) ; service SCM via
+  pywin32 ; toasts WinRT via PowerShell (best-effort, session 0 = limite
+  v1 connue) ; dossier Démarrage surveillé ; surcharge des dossiers par
+  MALRYX_WATCH_DIRS (service + tests).

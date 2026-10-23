@@ -73,13 +73,22 @@ Dans les deux voies, ClamAV demande une installation préalable
 workflow comme le script le signalent en `ACTION` au lieu de faire
 semblant.
 
-## 4. Verdict W0 à ce stade
+## 4. Verdict W0 — CLOS le 2026-10-23 (voie A, GitHub Actions)
 
 - Faisabilité **papier : verte** — aucun bloqueur de conception, le
   risque n°1 du plan (wheel YARA Windows) est levé avec preuve.
-- Faisabilité **machine : en attente d'une voie** (A ou B) pour les
-  4 verdicts : compile Flutter Windows, clamd TCP réel, événement
-  `ReadDirectoryChangesW` réel, signature Authenticode réelle.
-- W1 (port du moteur) ne démarre pas avant ces 4 verdicts, comme le
-  plan l'exige — mais tout le code non-Windows-dépendant peut avancer
-  en parallèle si tu le demandes.
+- Faisabilité **machine : verte**, les 4 verdicts sont obtenus sur
+  runner Windows réel :
+  - compile Flutter Windows / Visual Studio : **PASS** (run W0 n°1
+    `39986709528`, Flutter 3.47.7, VS Enterprise 2026) ;
+  - événement `ReadDirectoryChangesW` réel : **PASS** (run n°1) ;
+  - signature Authenticode réelle : **PASS** (run n°1) ;
+  - clamd TCP réel : **PASS** (run W1 `39995452363` : PONG, version
+    ClamAV 1.5.4/28162). Deux échecs avant ce verdict (runs W0 n°2 et
+    W1 n°1 : connexions coupées, WinError 10053) — la recette qui
+    marche : **exclusions Windows Defender sur les dossiers ClamAV
+    posées avant le démarrage de clamd**, puis PONG en moins d'une
+    minute. Le run W0 n°3, bloqué 18 min dans l'étape ClamAV, a été
+    annulé : le run W1 rejouait le même test avec le diagnostic.
+- W0 et W1 sont clos ; le développement continue en W2 (voir
+  docs/DECISIONS.md).
