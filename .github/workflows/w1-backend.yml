@@ -50,9 +50,19 @@ jobs:
           @("DatabaseDirectory $dbConf","TCPSocket 3310","TCPAddr 127.0.0.1","LogFile C:/ProgramData/ClamAV/clamd.log","Foreground yes") | Out-File "$clamDir\clamd.conf" -Encoding ascii
           @("DatabaseDirectory $dbConf","DatabaseMirror database.clamav.net","Checks 1") | Out-File "$clamDir\freshclam.conf" -Encoding ascii
           & "$clamDir\freshclam.exe" --config-file="$clamDir\freshclam.conf"
+          try { Add-MpPreference -ExclusionPath $clamDir,$db -ErrorAction Stop; Write-Host "exclusions Defender posees" } catch { Write-Host "exclusions Defender impossibles : $_" }
           Start-Process -FilePath $clamd.FullName -ArgumentList "--config-file=`"$clamDir\clamd.conf`"" -WindowStyle Hidden
-          python tools/clamd_tcp_test.py 127.0.0.1 3310 240
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $ok = $false
+          foreach ($i in 1..20) {
+            Start-Sleep -Seconds 30
+            python tools/clamd_tcp_test.py 127.0.0.1 3310 5
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            Write-Host "--- attente clamd, essai $i/20, journal :"
+            if (Test-Path "C:\ProgramData\ClamAV\clamd.log") { Get-Content "C:\ProgramData\ClamAV\clamd.log" -Tail 5 }
+          }
+          Write-Host "--- journal clamd complet :"
+          if (Test-Path "C:\ProgramData\ClamAV\clamd.log") { Get-Content "C:\ProgramData\ClamAV\clamd.log" }
+          if (-not $ok) { Write-Host "ECHEC: clamd sans PONG apres 600 s"; exit 1 }
           Write-Host "CLAMD_TCP_VERDICT: PASS"
 
       - name: Detections de bout en bout (EICAR + heuristiques)

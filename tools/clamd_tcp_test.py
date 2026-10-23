@@ -37,7 +37,10 @@ def main() -> int:
         try:
             with socket.create_connection((host, port), timeout=5.0) as sock:
                 pong = ask(sock, b"zPING")
-                version = ask(sock, b"zVERSION")
+            version = ""
+            if pong == "PONG":
+                with socket.create_connection((host, port), timeout=5.0) as sock:
+                    version = ask(sock, b"zVERSION")
             if pong == "PONG":
                 print(f"PASS: clamd {host}:{port} répond PONG, version = {version}")
                 return 0
