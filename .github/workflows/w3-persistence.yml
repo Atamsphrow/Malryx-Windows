@@ -60,6 +60,11 @@ jobs:
           if (-not $ok) { Write-Host "ECHEC: clamd sans PONG apres 600 s"; exit 1 }
           Write-Host "CLAMD_TCP_VERDICT: PASS"
 
+      - name: Sonde de temps STARTUP (ou passe le temps ?)
+        shell: pwsh
+        run: |
+          python -u tools/startup_probe.py
+
       - name: Persistance + Authenticode + scans STARTUP/SMART
         shell: pwsh
         run: |
