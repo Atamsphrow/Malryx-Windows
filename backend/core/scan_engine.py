@@ -613,28 +613,21 @@ class ScanManager:
     ) -> list[Engine]:
         """Triage des scans STARTUP/SMART sous Windows (W3).
 
-        Un scan des points de demarrage couvre ~800 fichiers systeme
-        (services, taches) : les passer tous au scan complet prend plus
-        de 15 minutes (constate en CI le 2026-10-23, timeout du test).
-        Comme les antivirus reels, on fait confiance a la cryptographie :
-        un fichier sous le dossier Windows dont la signature Authenticode
-        est VALIDE est compte comme controle sans scan de contenu (la
-        signature verifie deja son integrite). Tout le reste — non signe,
-        signature invalide, hors dossier systeme — passe par tous les
-        moteurs. Les scans PATH/FULL ne sont pas affectes.
+        Ces scans rapides couvrent des centaines de fichiers (services,
+        taches, processus, Program Files) : tout passer au scan de
+        contenu prend plus de 10 minutes (constate en CI). Comme les
+        antivirus reels, on fait confiance a la cryptographie : un
+        fichier dont la signature Authenticode est VALIDE est compte
+        comme controle sans scan de contenu, quel que soit son dossier
+        (la signature verifie deja son integrite et son origine). Tout
+        le reste — non signe, signature invalide, format inconnu — passe
+        par tous les moteurs. Les scans PATH/FULL ne sont pas affectes :
+        eux scannent tout, signatures ou non.
         """
         if not IS_WINDOWS or job.result.type not in (
             ScanType.STARTUP,
             ScanType.SMART,
         ):
-            return engines
-        system_root = os.environ.get("SystemRoot", r"C:\Windows")
-        try:
-            if not os.path.abspath(path).lower().startswith(
-                os.path.abspath(system_root).lower() + os.sep
-            ):
-                return engines
-        except Exception:
             return engines
         from core.authenticode import AuthStatus, verify_signature
 

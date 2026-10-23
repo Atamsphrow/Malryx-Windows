@@ -73,3 +73,12 @@ fonctions, sans s'arrêter à chaque jalon).
   Hypothèse principale : WinVerifyTrust tente des récupérations réseau
   (AIA) pendant la construction de chaîne. Ajout de
   WTD_CACHE_ONLY_URL_RETRIEVAL ; harnais durci (timeout isolé par scan).
+
+## 2026-10-23 — Triage W3 étendu
+
+- Run 40008984176 : les scans STARTUP/SMART dépassent toujours 600/1200 s.
+  Le goulot n'était pas WinVerifyTrust mais les scans complets des
+  binaires signés hors dossier Windows (Program Files du runner).
+  Triage étendu : dans STARTUP/SMART, tout fichier à signature VALIDE
+  est contrôlé par sa signature seule, quel que soit le dossier ; les
+  non signés gardent le scan complet. PATH/FULL inchangés.
