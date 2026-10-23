@@ -53,6 +53,7 @@ jobs:
           if (-not $clamd) { Write-Host "ECHEC: clamd.exe introuvable"; exit 1 }
           New-Item -ItemType Directory -Force -Path staging/clamav | Out-Null
           Copy-Item -Recurse -Force "$($clamd.Directory.FullName)\*" staging/clamav/
+          Remove-Item -Recurse -Force staging/clamav/UserManual -ErrorAction SilentlyContinue
           Write-Host "clamav bundle : $((Get-ChildItem -Recurse staging/clamav).Count) fichiers"
 
       - name: Compilation de l'installateur (Inno Setup)
@@ -71,6 +72,21 @@ jobs:
           name: Malryx-Setup
           path: dist/Malryx-Setup-1.0.0.exe
           retention-days: 14
+
+      - name: Inspection des artefacts (secrets, chemins de dev)
+        shell: pwsh
+        run: |
+          $bad = @()
+          $targets = @("staging/app/malryx-backend.exe", "dist/Malryx-Setup-1.0.0.exe")
+          foreach ($f in $targets) {
+            $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $f))
+            $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+            foreach ($pat in @('/home/hatch', 'tokenharbor', 'api_key', 'sk-ant-', 'sk-proj-')) {
+              if ($text.Contains($pat)) { $bad += "$f contient '$pat'" }
+            }
+          }
+          if ($bad) { $bad | ForEach-Object { Write-Host $_ }; Write-Host "ARTIFACT_AUDIT_VERDICT: FAIL"; exit 1 }
+          Write-Host "ARTIFACT_AUDIT_VERDICT: PASS"
 
       - name: "Smoke test : installation silencieuse + backend en ligne"
         shell: pwsh

@@ -111,3 +111,24 @@ fonctions, sans s'arrêter à chaque jalon).
   verdict Windows/RDW en CI.
 - Reste W5 : inspection REA des artefacts construits (avec W6, sur
   l'installateur final) + replica-diff final features.csv.
+
+## 2026-10-24 — W5 : robustesse temps réel PASS sur Windows
+
+- Run 40040443743 : REALTIME_ROBUST_VERDICT PASS via ReadDirectoryChangesW
+  (fichier 300 Mo sans blocage, EICAR en deux écritures détecté, sain
+  renommé .exe intact) ; audit, FP, restauration, bruit startup toujours
+  verts. W5 ne dépend plus que de l'inspection REA des artefacts et du
+  replica-diff final, faits avec W6 sur l'installateur construit.
+
+## 2026-10-24 — W6 premier build vert + replica-diff final
+
+- Run 40040961793 : INSTALLER_VERDICT PASS (Malryx-Setup-1.0.0.exe,
+  ~152 Mo), installation silencieuse OK, backend en ligne via les
+  tâches, désinstallation propre.
+- replica/diff-final.md : 13 must = 9 livrés, 3 partiels au périmètre
+  v1 (behavior/web/email), 1 écart (scan médias amovibles) ; should :
+  4 livrés, écarts assumés (maj programme, scan planifié non câblé,
+  dossiers anti-ransomware) ; skips tous tenus.
+- Ajouts pour le run final : inspection des artefacts construits
+  (chaînes interdites dans backend exe + installateur) et bundle
+  allégé (UserManual ClamAV exclu).
