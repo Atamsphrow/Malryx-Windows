@@ -1,0 +1,114 @@
+# W6 Malryx for Windows - installateur Inno Setup + test d'installation.
+# Produit dist/Malryx-Setup-1.0.0.exe (artefact du job), l'installe en
+# silencieux sur le runner, verifie /api/health, puis desinstalle.
+name: w6-installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "packaging/**"
+      - ".github/workflows/w6-installer.yml"
+
+jobs:
+  w6:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build interface + backend exe + staging
+        shell: pwsh
+        run: |
+          cd frontend
+          flutter pub get
+          flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cd ..
+          python -m pip install -r backend/requirements.txt
+          python -m PyInstaller --onefile --name malryx-backend --distpath dist-backend --workpath build-backend --specpath build-backend backend/main.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force -Path staging/app | Out-Null
+          Copy-Item -Recurse -Force frontend/build/windows/x64/runner/Release/* staging/app/
+          Copy-Item -Force dist-backend/malryx-backend.exe staging/app/
+          Get-ChildItem staging/app | Select-Object Name, Length
+
+      - name: Bundle ClamAV (arbre officiel via Chocolatey)
+        shell: pwsh
+        run: |
+          choco install clamav innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $clamd = Get-ChildItem -Path "C:\ProgramData\chocolatey\lib" -Filter clamd.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $clamd) { Write-Host "ECHEC: clamd.exe introuvable"; exit 1 }
+          New-Item -ItemType Directory -Force -Path staging/clamav | Out-Null
+          Copy-Item -Recurse -Force "$($clamd.Directory.FullName)\*" staging/clamav/
+          Write-Host "clamav bundle : $((Get-ChildItem -Recurse staging/clamav).Count) fichiers"
+
+      - name: Compilation de l'installateur (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" | Select-Object -First 1).FullName }
+          & $iscc packaging\malryx.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $setup = Get-Item dist\Malryx-Setup-1.0.0.exe
+          Write-Host "INSTALLER_VERDICT: PASS ($($setup.Length) octets)"
+
+      - name: Artefact installateur
+        uses: actions/upload-artifact@v4
+        with:
+          name: Malryx-Setup
+          path: dist/Malryx-Setup-1.0.0.exe
+          retention-days: 14
+
+      - name: "Smoke test : installation silencieuse + backend en ligne"
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path dist\Malryx-Setup-1.0.0.exe).Path
+          $proc = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru -Wait
+          Write-Host "code retour installateur : $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { Write-Host "ECHEC installation"; exit 1 }
+          $app = "C:\Program Files\Malryx"
+          foreach ($f in @("malryx.exe","malryx-backend.exe","clamav\clamd.exe","clamav\clamd.conf")) {
+            if (-not (Test-Path "$app\$f")) { Write-Host "ECHEC: $f manquant apres installation"; exit 1 }
+          }
+          Write-Host "fichiers installes OK"
+          # Demarrer les taches comme au boot, puis interroger le backend.
+          schtasks /Run /TN MalryxClamd | Out-Host
+          schtasks /Run /TN MalryxBackend | Out-Host
+          $ok = $false
+          foreach ($i in 1..40) {
+            Start-Sleep -Seconds 3
+            try {
+              $r = Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/health" -TimeoutSec 3
+              Write-Host "health : version=$($r.version) platform=$($r.platform)"
+              $ok = $true; break
+            } catch {}
+          }
+          if (-not $ok) { Write-Host "ECHEC: backend muet apres installation"; exit 1 }
+          Write-Host "SMOKE_VERDICT: PASS"
+
+      - name: "Smoke test : desinstallation propre"
+        shell: pwsh
+        run: |
+          schtasks /End /TN MalryxBackend 2>$null | Out-Host
+          schtasks /End /TN MalryxClamd 2>$null | Out-Host
+          Start-Sleep -Seconds 3
+          Get-Process malryx-backend,clamd -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $unins = Get-ChildItem "C:\Program Files\Malryx\unins*.exe" | Select-Object -First 1
+          if (-not $unins) { Write-Host "ECHEC: desinstallateur introuvable"; exit 1 }
+          $proc = Start-Process -FilePath $unins.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -PassThru -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path "C:\Program Files\Malryx\malryx.exe") { Write-Host "ECHEC: fichiers restants apres desinstallation"; exit 1 }
+          Write-Host "UNINSTALL_VERDICT: PASS"
