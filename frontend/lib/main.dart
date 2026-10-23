@@ -1,26 +1,41 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'models/scan_result.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/devices_screen.dart';
 import 'screens/local_scan_screen.dart';
 import 'screens/quarantine_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/shields_screen.dart';
+import 'services/tray_service.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 import 'widgets/common.dart';
 
-void main() {
-  runApp(const MalryxApp());
+/// Point d'entree. `--scan <chemin>` (menu contextuel de l'Explorateur,
+/// raccourcis) demande l'analyse immediate de la cible passee.
+void main(List<String> args) {
+  String? scanTarget;
+  final index = args.indexOf('--scan');
+  if (index != -1 && index + 1 < args.length) {
+    scanTarget = args[index + 1];
+  }
+  runApp(MalryxApp(pendingScanTarget: scanTarget));
 }
 
 class MalryxApp extends StatelessWidget {
-  const MalryxApp({super.key});
+  const MalryxApp({super.key, this.pendingScanTarget});
+
+  final String? pendingScanTarget;
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => AppState()..initialize(),
+      create: (_) =>
+          AppState(pendingScanTarget: pendingScanTarget)..initialize(),
       child: Consumer<AppState>(
         builder: (context, state, _) {
           return MaterialApp(
@@ -72,6 +87,11 @@ class _AppShellState extends State<_AppShell> {
     ),
     (label: 'Scan', icon: Icons.radar_outlined, selectedIcon: Icons.radar),
     (
+      label: 'Boucliers',
+      icon: Icons.shield_outlined,
+      selectedIcon: Icons.shield
+    ),
+    (
       label: 'Appareils',
       icon: Icons.devices_outlined,
       selectedIcon: Icons.devices
@@ -90,6 +110,46 @@ class _AppShellState extends State<_AppShell> {
 
   void _navigate(int index) => setState(() => _index = index);
 
+  TrayService? _tray;
+  bool _scanTargetConsumed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tray = TrayService(
+      onOpen: () {},
+      onSmartScan: () => _startTrayScan(ScanTypes.smart),
+      onStartupScan: () => _startTrayScan(ScanTypes.startup),
+      onQuit: () => exit(0),
+    );
+    _tray!.initialize();
+  }
+
+  @override
+  void dispose() {
+    _tray?.dispose();
+    super.dispose();
+  }
+
+  void _startTrayScan(String type) {
+    final state = context.read<AppState>();
+    if (state.phase != BackendPhase.ready) return;
+    state.startScan(type: type).then((started) {
+      if (started && mounted) _navigate(1);
+    });
+  }
+
+  /// Une cible passee en ligne de commande ouvre l'ecran d'analyse des
+  /// que le backend est pret (une seule fois).
+  void _consumeScanTarget(AppState state) {
+    if (_scanTargetConsumed || state.phase != BackendPhase.ready) return;
+    if (state.pendingScanTarget == null) return;
+    _scanTargetConsumed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _navigate(1);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
@@ -100,6 +160,7 @@ class _AppShellState extends State<_AppShell> {
     if (state.phase == BackendPhase.failed) {
       return _StartupFailedScreen(message: state.startupError ?? 'Erreur inconnue');
     }
+    _consumeScanTarget(state);
 
     return Scaffold(
       body: Row(
@@ -135,8 +196,9 @@ class _AppShellState extends State<_AppShell> {
   Widget _screenFor(int index) => switch (index) {
         0 => DashboardScreen(onNavigate: _navigate),
         1 => const LocalScanScreen(),
-        2 => DevicesScreen(onNavigate: _navigate),
-        3 => const QuarantineScreen(),
+        2 => const ShieldsScreen(),
+        3 => DevicesScreen(onNavigate: _navigate),
+        4 => const QuarantineScreen(),
         _ => const SettingsScreen(),
       };
 }

@@ -91,6 +91,10 @@ class SettingsScreen extends StatelessWidget {
         const SizedBox(height: 16),
         _VirusTotalCard(),
         const SizedBox(height: 16),
+        _UpdatesCard(),
+        const SizedBox(height: 16),
+        _ScheduleCard(),
+        const SizedBox(height: 16),
         _ExclusionsCard(),
         const SizedBox(height: 16),
         _AppearanceCard(),
@@ -244,7 +248,20 @@ class _VirusTotalCardState extends State<_VirusTotalCard> {
   }
 }
 
-class _ExclusionsCard extends StatelessWidget {
+class _ExclusionsCard extends StatefulWidget {
+  @override
+  State<_ExclusionsCard> createState() => _ExclusionsCardState();
+}
+
+class _ExclusionsCardState extends State<_ExclusionsCard> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
@@ -252,6 +269,9 @@ class _ExclusionsCard extends StatelessWidget {
     final excluded =
         (state.settings['excluded_paths'] as List?)?.cast<String>() ?? const [];
     final maxSize = state.settings['max_file_size_mb'] as int? ?? 256;
+
+    Future<void> save(List<String> paths) =>
+        state.updateSetting('excluded_paths', paths);
 
     return SectionCard(
       title: 'Limites et exclusions',
@@ -291,15 +311,184 @@ class _ExclusionsCard extends StatelessWidget {
                 Chip(
                   label: Text(path, style: const TextStyle(fontSize: 11)),
                   visualDensity: VisualDensity.compact,
+                  onDeleted: () =>
+                      save(excluded.where((e) => e != path).toList()),
                 ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Ajouter un chemin exclu',
+                    hintText: r'C:\Dossier\a\ignorer',
+                  ),
+                  onSubmitted: (value) {
+                    final path = value.trim();
+                    if (path.isEmpty || excluded.contains(path)) return;
+                    _controller.clear();
+                    save([...excluded, path]);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: () {
+                  final path = _controller.text.trim();
+                  if (path.isEmpty || excluded.contains(path)) return;
+                  _controller.clear();
+                  save([...excluded, path]);
+                },
+                child: const Text('Ajouter'),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            'Les pseudo-systèmes de fichiers (/proc, /sys, /dev) sont exclus '
-            'd\'office : les parcourir n\'a pas de sens et peut boucler '
-            'indéfiniment. Le dossier de quarantaine l\'est aussi, sinon le '
-            'scanner se détecterait lui-même en boucle.',
+            'Les dossiers système protégés (System Volume Information, '
+            '\$Recycle.Bin, Recovery) et le dossier de quarantaine sont '
+            'exclus d\'office : les parcourir n\'a pas de sens, et le '
+            'scanner se détecterait lui-même en boucle sur la quarantaine.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Mises a jour des definitions (S10) : etat des bases et declenchement
+/// de freshclam via le backend.
+class _UpdatesCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final theme = Theme.of(context);
+    final clamav = state.health?.engines
+        .where((e) => e.name == 'clamav')
+        .firstOrNull;
+    final yara = state.health?.engines
+        .where((e) => e.name == 'yara')
+        .firstOrNull;
+
+    return SectionCard(
+      title: 'Mises à jour des définitions',
+      icon: Icons.system_update_outlined,
+      subtitle: 'Les définitions ClamAV sont téléchargées par freshclam '
+          'depuis les miroirs officiels (connexion internet requise).',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DetailRow(
+            label: 'Signatures ClamAV',
+            value: clamav?.signatures != null
+                ? formatCount(clamav!.signatures!)
+                : 'indisponible',
+          ),
+          DetailRow(
+            label: 'Version ClamAV',
+            value: clamav?.version ?? '—',
+          ),
+          DetailRow(
+            label: 'Règles YARA',
+            value: yara?.signatures != null
+                ? formatCount(yara!.signatures!)
+                : '—',
+          ),
+          DetailRow(
+            label: 'Empreintes locales',
+            value: formatCount(state.stats.localSignatures),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              FilledButton.icon(
+                onPressed:
+                    state.definitionsUpdating ? null : state.updateDefinitions,
+                icon: state.definitionsUpdating
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download_outlined, size: 18),
+                label: const Text('Mettre à jour maintenant'),
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: 'Réinterroger les moteurs',
+                onPressed: state.refreshHealth,
+              ),
+            ],
+          ),
+          if (state.definitionsUpdateMessage != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              state.definitionsUpdateMessage!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Planification (S11) : presets du planificateur backend (cron).
+class _ScheduleCard extends StatelessWidget {
+  static const List<({String label, String cron})> _presets = [
+    (label: 'Désactivée', cron: ''),
+    (label: 'Quotidienne (3 h)', cron: 'daily'),
+    (label: 'Hebdomadaire (dimanche 3 h)', cron: 'weekly'),
+    (label: 'Mensuelle (le 1er, 3 h)', cron: 'monthly'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final theme = Theme.of(context);
+    final current = state.settings['scheduled_scan_cron'] as String? ?? '';
+    final isPreset = _presets.any((p) => p.cron == current);
+
+    return SectionCard(
+      title: 'Scans planifiés',
+      icon: Icons.schedule_outlined,
+      subtitle: 'Un scan complet est lancé automatiquement selon la '
+          'fréquence choisie (expression cron 5 champs acceptée).',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final preset in _presets)
+                ChoiceChip(
+                  label: Text(preset.label),
+                  selected: current == preset.cron,
+                  onSelected: (_) =>
+                      state.updateSetting('scheduled_scan_cron', preset.cron),
+                ),
+              if (!isPreset && current.isNotEmpty)
+                Chip(
+                  label: Text('Personnalisée : $current'),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            current.isEmpty
+                ? 'Aucun scan planifié.'
+                : 'Planification active : $current',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

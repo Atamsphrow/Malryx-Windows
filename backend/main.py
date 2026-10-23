@@ -210,6 +210,95 @@ def stats(state: AppState = Depends(get_state)) -> dict:
     return data
 
 
+# -- Mise a jour des definitions ClamAV (freshclam) ---------------------- #
+# Etat partage du dernier lancement : l'UI demarre la mise a jour puis
+# interroge le statut, freshclam pouvant prendre plusieurs minutes.
+_definitions_update: dict = {
+    "running": False,
+    "message": "Aucune mise a jour lancee.",
+    "finished_at": None,
+}
+
+
+def _find_freshclam() -> str | None:
+    """Localise freshclam(.exe) : PATH, installation officielle, Chocolatey."""
+    import glob
+    import shutil
+
+    found = shutil.which("freshclam") or shutil.which("freshclam.exe")
+    if found:
+        return found
+    candidates = [
+        r"C:\Program Files\ClamAV\freshclam.exe",
+        r"C:\Program Files (x86)\ClamAV\freshclam.exe",
+    ]
+    candidates += glob.glob(
+        r"C:\ProgramData\chocolatey\lib\clamav\tools\*\freshclam.exe"
+    )
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _run_definitions_update() -> None:
+    import subprocess
+    import time
+
+    try:
+        freshclam = _find_freshclam()
+        if freshclam is None:
+            _definitions_update["message"] = (
+                "freshclam introuvable : ClamAV n'est pas installe "
+                "(installeur officiel ClamAV pour Windows requis)."
+            )
+            return
+        proc = subprocess.run(
+            [freshclam],
+            capture_output=True, text=True, timeout=900,
+        )
+        tail = (proc.stdout + proc.stderr).strip().splitlines()
+        summary = tail[-1] if tail else ""
+        if proc.returncode == 0:
+            _definitions_update["message"] = (
+                f"Definitions a jour. {summary}".strip()
+            )
+        else:
+            _definitions_update["message"] = (
+                f"freshclam a echoue (code {proc.returncode}). {summary}".strip()
+            )
+    except Exception as exc:
+        _definitions_update["message"] = f"Echec de la mise a jour : {exc}"
+    finally:
+        _definitions_update["running"] = False
+        _definitions_update["finished_at"] = time.time()
+
+
+@app.post("/api/system/update-definitions", tags=["system"])
+def start_definitions_update() -> dict:
+    """Lance freshclam en arriere-plan (une seule execution a la fois)."""
+    import threading
+
+    if _definitions_update["running"]:
+        return {"started": False, "message": "Mise a jour deja en cours."}
+    _definitions_update["running"] = True
+    _definitions_update["message"] = "Mise a jour des definitions en cours..."
+    threading.Thread(
+        target=_run_definitions_update, daemon=True,
+        name="malryx-freshclam",
+    ).start()
+    return {"started": True, "message": _definitions_update["message"]}
+
+
+@app.get("/api/system/update-definitions", tags=["system"])
+def definitions_update_status() -> dict:
+    return {
+        "running": _definitions_update["running"],
+        "message": _definitions_update["message"],
+        "finished_at": _definitions_update["finished_at"],
+    }
+
+
 @app.get("/api/settings", tags=["system"])
 def get_settings(state: AppState = Depends(get_state)) -> dict:
     return state.settings.to_dict()

@@ -23,6 +23,8 @@ class DashboardScreen extends StatelessWidget {
       children: [
         _ProtectionHeader(onNavigate: onNavigate),
         const SizedBox(height: 20),
+        _ShortcutTiles(onNavigate: onNavigate),
+        const SizedBox(height: 20),
         _StatsGrid(),
         const SizedBox(height: 20),
         Row(
@@ -37,10 +39,9 @@ class DashboardScreen extends StatelessWidget {
           const SizedBox(height: 20),
           NoticeBanner(
             message:
-                'Backend lancé sur ${state.health!.platform}, pas sur Linux. '
-                'Le scan de fichiers, les empreintes et les heuristiques '
-                'fonctionnent ; ClamAV, ADB, les montages et les points de '
-                'démarrage sont inertes hors Debian.',
+                'Backend lancé sur ${state.health!.platform}. Les moteurs '
+                'locaux fonctionnent ; les fonctions propres à l\'autre '
+                'plateforme (ADB, paquets Debian...) sont inertes.',
             icon: Icons.construction_outlined,
           ),
         ],
@@ -62,6 +63,7 @@ class _ProtectionHeader extends StatelessWidget {
     final quarantined = state.stats.quarantineActive;
     final scanning = state.activeScan?.isActive ?? false;
 
+    final realtimeOff = state.settings['realtime_protection'] != true;
     final (Color color, IconData icon, String title, String message) = switch ((
       scanning,
       quarantined > 0,
@@ -84,6 +86,13 @@ class _ProtectionHeader extends StatelessWidget {
           Icons.shield_moon_outlined,
           'Aucun scan effectué',
           'Lancez une première analyse pour connaître l\'état de la machine.',
+        ),
+      (_, false, false) when realtimeOff => (
+          SeverityPalette.medium,
+          Icons.shield_outlined,
+          'Protection temps réel désactivée',
+          'Les nouveaux fichiers ne sont pas analysés automatiquement. '
+              'Activez la protection temps réel dans l\'onglet Boucliers.',
         ),
       _ => (
           SeverityPalette.clean,
@@ -156,6 +165,19 @@ class _ProtectionHeader extends StatelessWidget {
                       ? null
                       : () async {
                           final started = await state.startScan(
+                            type: ScanTypes.smart,
+                          );
+                          if (started) onNavigate(1);
+                        },
+                  icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+                  label: const Text('Scan intelligent'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: scanning
+                      ? null
+                      : () async {
+                          final started = await state.startScan(
                             type: ScanTypes.startup,
                           );
                           if (started) onNavigate(1);
@@ -166,6 +188,114 @@ class _ProtectionHeader extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Raccourcis facon AVG : tuiles Boucliers et Definitions, avec leur
+/// etat reel lu dans les reglages et les moteurs du backend.
+class _ShortcutTiles extends StatelessWidget {
+  const _ShortcutTiles({required this.onNavigate});
+
+  final void Function(int index) onNavigate;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final theme = Theme.of(context);
+    final realtime = state.settings['realtime_protection'] == true;
+    final clamav = state.health?.engines
+        .where((e) => e.name == 'clamav')
+        .firstOrNull;
+    final definitions = clamav?.signatures != null
+        ? '${formatCount(clamav!.signatures!)} signatures ClamAV'
+        : 'État des définitions inconnu';
+
+    return Row(
+      children: [
+        Expanded(
+          child: _ShortcutTile(
+            icon: Icons.shield_outlined,
+            title: 'Boucliers',
+            subtitle: realtime
+                ? 'Protection temps reel active'
+                : 'Protection temps réel désactivée',
+            accent:
+                realtime ? SeverityPalette.clean : SeverityPalette.medium,
+            onTap: () => onNavigate(2),
+          ),
+        ),
+        const SizedBox(width: 20),
+        Expanded(
+          child: _ShortcutTile(
+            icon: Icons.system_update_outlined,
+            title: 'Définitions',
+            subtitle: definitions,
+            accent: theme.colorScheme.primary,
+            onTap: () => onNavigate(5),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ShortcutTile extends StatelessWidget {
+  const _ShortcutTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: accent, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
         ),
       ),
     );

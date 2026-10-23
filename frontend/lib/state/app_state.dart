@@ -42,8 +42,12 @@ class ActiveScan {
 /// l'application est un tableau de bord dont les écrans lisent tous les mêmes
 /// données, et les mises à jour arrivent par une source unique (le WebSocket).
 class AppState extends ChangeNotifier {
-  AppState({ApiClient? api, BackendProcess? backend, int port = 8765})
-      : _api = api ?? ApiClient(port: port),
+  AppState({
+    ApiClient? api,
+    BackendProcess? backend,
+    int port = 8765,
+    this.pendingScanTarget,
+  })  : _api = api ?? ApiClient(port: port),
         _backend = backend ?? BackendProcess(port: port),
         _port = port;
 
@@ -77,6 +81,20 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> settings = {};
 
   ActiveScan? activeScan;
+
+  /// Cible passee en ligne de commande (`--scan <chemin>`, menu contextuel
+  /// de l'Explorateur) : l'ecran d'analyse la consomme au premier affichage.
+  String? pendingScanTarget;
+
+  /// Derniere menace signalee par la protection temps reel (scan_id
+  /// « realtime ») : affichee en notice et sur le tableau de bord.
+  String? lastRealtimeThreat;
+
+  String? consumePendingScanTarget() {
+    final target = pendingScanTarget;
+    pendingScanTarget = null;
+    return target;
+  }
 
   /// Dernier résultat consulté en détail (écran de résultats).
   ScanResult? selectedScan;
@@ -150,9 +168,31 @@ class AppState extends ChangeNotifier {
         notifyListeners();
 
       case EventTypes.scanThreat:
+        final raw = event.data['threat'];
+        if (event.scanId == 'realtime') {
+          // Protection temps reel : pas de scan suivi, mais l'utilisateur
+          // doit le savoir tout de suite (le toast systeme couvre le cas
+          // ou l'application est fermee).
+          if (raw is Map) {
+            final threat =
+                Threat.fromJson(raw.cast<String, dynamic>());
+            lastRealtimeThreat =
+                '${threat.name} — ${threat.path}';
+            _setNotice(
+              threat.quarantined
+                  ? 'Menace bloquee en temps reel et mise en quarantaine : '
+                      '${threat.name}'
+                  : 'Menace detectee en temps reel : ${threat.name} '
+                      '(${threat.path})',
+              isError: true,
+            );
+          }
+          refreshQuarantine();
+          refreshStats();
+          return;
+        }
         final scan = activeScan;
         if (scan == null || scan.id != event.scanId) return;
-        final raw = event.data['threat'];
         if (raw is Map) {
           scan.threats.add(Threat.fromJson(raw.cast<String, dynamic>()));
           notifyListeners();
@@ -376,6 +416,37 @@ class AppState extends ChangeNotifier {
       _setNotice('Fichier supprimé définitivement.', isError: false);
     } catch (error) {
       _setNotice(_describe(error), isError: true);
+    }
+  }
+
+  // -- mises a jour des definitions --------------------------------------- //
+
+  bool definitionsUpdating = false;
+  String? definitionsUpdateMessage;
+
+  Future<void> updateDefinitions() async {
+    if (definitionsUpdating) return;
+    definitionsUpdating = true;
+    definitionsUpdateMessage = 'Mise a jour des definitions en cours...';
+    notifyListeners();
+    try {
+      await _api.startDefinitionsUpdate();
+      // freshclam peut prendre quelques minutes : on suit le statut.
+      for (var i = 0; i < 60; i++) {
+        await Future<void>.delayed(const Duration(seconds: 5));
+        final status = await _api.definitionsUpdateStatus();
+        if (status['running'] != true) {
+          definitionsUpdateMessage =
+              status['message'] as String? ?? 'Mise a jour terminee.';
+          break;
+        }
+      }
+      await refreshHealth();
+    } catch (error) {
+      definitionsUpdateMessage = _describe(error);
+    } finally {
+      definitionsUpdating = false;
+      notifyListeners();
     }
   }
 

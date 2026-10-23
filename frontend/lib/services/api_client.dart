@@ -339,6 +339,19 @@ class ApiClient {
   Future<void> deleteQuarantine(String id) =>
       _send('DELETE', '/api/quarantine/$id');
 
+  // -- mises a jour des definitions ---------------------------------------- //
+
+  Future<Map<String, dynamic>> startDefinitionsUpdate() async {
+    final json = await _send('POST', '/api/system/update-definitions',
+        timeout: const Duration(seconds: 60));
+    return (json as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> definitionsUpdateStatus() async {
+    final json = await _send('GET', '/api/system/update-definitions');
+    return (json as Map).cast<String, dynamic>();
+  }
+
   // -- signatures --------------------------------------------------------- //
 
   Future<int> importSignatures(String path) async {

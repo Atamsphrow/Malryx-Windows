@@ -12,6 +12,7 @@ class ScanTypes {
   static const String fullSystem = 'full_system';
   static const String memory = 'memory';
   static const String startup = 'startup';
+  static const String smart = 'smart';
   static const String packages = 'packages';
   static const String usb = 'usb';
   static const String android = 'android';
@@ -23,6 +24,7 @@ class ScanTypes {
         fullSystem => 'Système complet',
         memory => 'Mémoire et processus',
         startup => 'Points de démarrage',
+        smart => 'Scan intelligent',
         packages => 'Paquets installés',
         usb => 'Média amovible',
         android => 'Appareil Android',

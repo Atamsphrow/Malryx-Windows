@@ -1,0 +1,76 @@
+# W4 Malryx for Windows - interface Flutter Windows + backend empaquete.
+# Deux jobs independants : le verdict UI et le verdict backend-exe ne se
+# masquent pas l'un l'autre.
+name: w4-ui
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/w4-ui.yml"
+
+jobs:
+  ui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Analyse + tests + build Windows
+        shell: pwsh
+        working-directory: frontend
+        run: |
+          flutter pub get
+          flutter analyze
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          flutter test
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $exe = "build\\windows\\x64\\runner\\Release\\malryx.exe"
+          if (-not (Test-Path $exe)) { Write-Host "ECHEC: $exe introuvable"; exit 1 }
+          Write-Host "UI_VERDICT: PASS ($exe, $((Get-Item $exe).Length) octets)"
+
+  backend-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: PyInstaller - malryx-backend.exe
+        shell: pwsh
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python -m PyInstaller --onefile --name malryx-backend --distpath dist-backend --workpath build-backend --specpath build-backend backend/main.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $exe = "dist-backend\\malryx-backend.exe"
+          if (-not (Test-Path $exe)) { Write-Host "ECHEC: $exe introuvable"; exit 1 }
+          Write-Host "backend exe : $((Get-Item $exe).Length) octets"
+
+      - name: Le backend empaquete repond sur /api/health
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist-backend\\malryx-backend.exe" -ArgumentList "--port","8765" -PassThru -WindowStyle Hidden
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 2
+            try {
+              $r = Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/health" -TimeoutSec 3
+              Write-Host "health : version=$($r.version) platform=$($r.platform)"
+              $ok = $true; break
+            } catch {}
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { Write-Host "ECHEC: /api/health sans reponse"; exit 1 }
+          Write-Host "BACKEND_EXE_VERDICT: PASS"

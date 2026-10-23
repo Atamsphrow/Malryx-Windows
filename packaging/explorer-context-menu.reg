@@ -1,0 +1,29 @@
+Windows Registry Editor Version 5.00
+
+; Menu contextuel de l'Explorateur Windows pour Malryx (W4).
+; Applique par l'installateur (W6) apres avoir remplace %MALRYX_EXE%
+; par le chemin reel de malryx.exe. L'action lance :
+;   "malryx.exe" --scan "<cible>"
+; ce que l'application Flutter intercepte au demarrage pour ouvrir
+; l'ecran d'analyse sur la cible.
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\MalryxScan]
+@="Analyser avec Malryx"
+"Icon"="%MALRYX_EXE%"
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\MalryxScan\command]
+@="\"%MALRYX_EXE%\" --scan \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\MalryxScan]
+@="Analyser avec Malryx"
+"Icon"="%MALRYX_EXE%"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\MalryxScan\command]
+@="\"%MALRYX_EXE%\" --scan \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Drive\shell\MalryxScan]
+@="Analyser avec Malryx"
+"Icon"="%MALRYX_EXE%"
+
+[HKEY_CURRENT_USER\Software\Classes\Drive\shell\MalryxScan\command]
+@="\"%MALRYX_EXE%\" --scan \"%1\""

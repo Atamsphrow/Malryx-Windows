@@ -26,6 +26,24 @@ class _LocalScanScreenState extends State<LocalScanScreen> {
   final List<String> _targets = [];
   ScanOptions _options = const ScanOptions();
   String _scanType = ScanTypes.path;
+  bool _pendingTargetConsumed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Cible passee en ligne de commande (--scan, menu contextuel de
+    // l'Explorateur) : on la pre-remplit une seule fois.
+    if (_pendingTargetConsumed) return;
+    _pendingTargetConsumed = true;
+    final state = context.read<AppState>();
+    final target = state.consumePendingScanTarget();
+    if (target != null && target.isNotEmpty) {
+      setState(() {
+        if (!_targets.contains(target)) _targets.add(target);
+        _scanType = ScanTypes.path;
+      });
+    }
+  }
 
   Future<void> _pickDirectory() async {
     final path = await getDirectoryPath(
@@ -90,6 +108,8 @@ class _LocalScanScreenState extends State<LocalScanScreen> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
+                  _typeChoice(ScanTypes.smart, 'Scan intelligent',
+                      Icons.auto_awesome_outlined),
                   _typeChoice(ScanTypes.path, 'Dossier ou fichier',
                       Icons.folder_outlined),
                   _typeChoice(ScanTypes.fullSystem, 'Système complet',
@@ -153,14 +173,25 @@ class _LocalScanScreenState extends State<LocalScanScreen> {
                     ),
                 ],
               ],
+              if (_scanType == ScanTypes.smart) ...[
+                const SizedBox(height: 16),
+                NoticeBanner(
+                  message:
+                      'Le scan intelligent couvre les zones critiques : '
+                      'executables des processus en cours, points de '
+                      'demarrage, dossier temporaire et Telechargements. '
+                      'C\'est le scan a lancer en premier.',
+                  icon: Icons.auto_awesome_outlined,
+                ),
+              ],
               if (_scanType == ScanTypes.fullSystem) ...[
                 const SizedBox(height: 16),
                 NoticeBanner(
                   message:
-                      'Le scan complet parcourt toute la racine. Les pseudo-'
-                      'systèmes de fichiers (/proc, /sys, /dev) et la '
-                      'quarantaine sont exclus. Comptez plusieurs dizaines de '
-                      'minutes, et des fichiers illisibles sans droits root.',
+                      'Le scan complet parcourt tout le disque systeme. '
+                      'La quarantaine et les dossiers exclus sont ignores. '
+                      'Comptez plusieurs dizaines de minutes, et des '
+                      'fichiers illisibles sans droits administrateur.',
                   icon: Icons.schedule,
                 ),
               ],
@@ -168,10 +199,12 @@ class _LocalScanScreenState extends State<LocalScanScreen> {
                 const SizedBox(height: 16),
                 NoticeBanner(
                   message:
-                      'Analyse des emplacements de persistance : cron, unités '
-                      'systemd, init.d, autostart, profile.d, ld.so.preload. '
-                      'C\'est là que se logent les portes dérobées qui '
-                      'survivent au redémarrage.',
+                      'Analyse des points de persistance Windows : cles '
+                      'Run/RunOnce du registre, dossier Demarrage, taches '
+                      'planifiees et services. Les executables non signes '
+                      'dans les dossiers a risque sont signales. C\'est la '
+                      'que se logent les portes derobees qui survivent au '
+                      'redemarrage.',
                   icon: Icons.rocket_launch_outlined,
                 ),
               ],
