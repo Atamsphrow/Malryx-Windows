@@ -1,0 +1,33 @@
+feature,area,priority,original,clone,notes
+Écran principal avec statut global protégé/attention/danger,dashboard,must,yes,no,S02 — repris du dashboard Malryx Linux
+File Shield — scan à l'ouverture/création/modification (user-mode v1),shields,must,yes,no,S07 — pas de minifilter kernel en v1 (voir skip)
+Behavior Shield — surveillance heuristique des processus lancés,shields,must,yes,no,S07 — heuristiques Malryx adaptées PE/Windows
+Web Shield — blocage téléchargements et liens malveillants,shields,must,yes,no,S08 — périmètre v1 : fichiers téléchargés scannés à l'arrivée + liste d'URL connues ; pas d'interception HTTPS
+Email Shield — scan des pièces jointes à la réception,shields,must,yes,no,S08 — périmètre v1 : pièces jointes extraites des clients bureau scannées à l'écriture disque
+Smart Scan — scan rapide des zones critiques,scan,must,yes,no,S03/S04 — démarrage Windows + dossiers d'entrée + système
+Deep Scan — scan complet du disque,scan,must,yes,no,S03/S04
+File/Folder Scan — scan ciblé fichier ou dossier,scan,must,yes,no,S03 — + entrée clic droit Explorateur (registre simple en v1)
+Removable Scan — scan des médias amovibles à l'insertion,scan,must,yes,no,S03 — Malryx Linux le fait déjà pour USB sous Debian
+Scan des archives (zip/tar/7z via outil externe),scan,must,yes,no,zip/tar déjà gérés par Malryx ; 7z = should
+Quarantaine — isoler/restaurer/supprimer,quarantine,must,yes,no,S06 — déjà prouvé sous Linux (aller-retour bit-à-bit)
+Alerte temps réel (toast) à la détection,notifications,must,yes,no,S09 — notifications Windows natives
+Mises à jour auto des définitions (freshclam),updates,must,yes,no,S10 — signatures ClamAV libres
+Mise à jour du programme,updates,should,yes,no,S10 — vérification manuelle v1 ; auto = could
+Scan planifié (hebdo par défaut proposé),scan,should,yes,no,S11 — Task Scheduler Windows ; le champ cron Malryx devient une vraie planification
+Exclusions après faux positif,settings,should,yes,no,S12 — fichier/dossier/empreinte
+Historique et statistiques des scans,dashboard,should,yes,no,Déjà dans Malryx Linux (SQLite)
+Scan des points de persistance (Run/RunOnce/Startup/tâches/services),scan,should,yes,no,Spécifique Windows — équivalent des autostart/systemd scannés sous Linux
+Vérification de signature Authenticode des exécutables,engines,should,yes,no,Spécifique Windows — non signé + inconnu = signal heuristique
+Dossiers protégés anti-ransomware + apps autorisées,protection,should,yes,no,S13 — surveillance renforcée + blocage d'écriture par processus inconnu en user-mode (limité)
+Boot-Time Scan — scan avant session (tâche au démarrage),scan,could,yes,no,Version user-mode : tâche planifiée au boot ; pas WinPE en v1
+Network Inspector — appareils du réseau local et faiblesses routeur,tools,could,yes,no,S14 — périmètre Free exact incertain ; version simple : inventaire ARP + ports ouverts connus
+Mode silencieux / ne pas déranger pendant jeu ou plein écran,settings,could,yes,no,S15
+Rapport de scan exportable (PDF/HTML),scan,could,yes,no,Utile pour son positionnement rapports/cours ; absent d'AVG Free en standard
+Base de signatures propriétaire + analyse cloud type CyberCapture,engines,skip,yes,no,Actif AVG — remplacé par ClamAV + YARA + heuristiques + VirusTotal optionnel (clé utilisateur)
+Pilote kernel / minifilter équivalent File Shield,shields,skip,yes,no,Exige certificat EV + attestation Microsoft — décision séparée XL
+Enregistrement Windows Security Center comme antivirus principal,platform,skip,yes,no,Programme partenaire Microsoft — v1 coexiste avec Defender sans le remplacer
+Fonctions premium (pare-feu amélioré/webcam/remote access/données sensibles/fake website/shredder),premium,skip,yes,no,Payantes chez AVG — hors promesse du clone gratuit
+Rescue Disk bootable officiel,rescue,skip,yes,no,Remplacé en could par le scan au démarrage
+Compte utilisateur cloud et télémétrie,platform,skip,yes,no,Aucune infrastructure — le clone est 100 % local comme Malryx
+Nom/logo/textes AVG,brand,skip,yes,no,Marque déposée — nom et identité propres obligatoires
+Support 24/7,support,skip,yes,no,Pas d'infrastructure de support
