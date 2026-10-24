@@ -81,8 +81,14 @@ jobs:
           foreach ($f in $targets) {
             $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $f))
             $text = [System.Text.Encoding]::ASCII.GetString($bytes)
-            foreach ($pat in @('/home/hatch', 'tokenharbor', 'api_key', 'sk-ant-', 'sk-proj-')) {
+            foreach ($pat in @('/home/hatch', 'tokenharbor', 'sk-ant-', 'sk-proj-', 'gsk_', 'AIza')) {
               if ($text.Contains($pat)) { $bad += "$f contient '$pat'" }
+            }
+            # Une vraie cle embarquee serait une affectation avec valeur
+            # longue ; le simple identifiant 'api_key' (code VirusTotal
+            # legitime) ne doit pas declencher l'alerte.
+            if ($text -match "api_key\s*[:=]\s*['""][A-Za-z0-9_\-]{16,}") {
+              $bad += "$f contient une affectation api_key avec valeur"
             }
           }
           if ($bad) { $bad | ForEach-Object { Write-Host $_ }; Write-Host "ARTIFACT_AUDIT_VERDICT: FAIL"; exit 1 }

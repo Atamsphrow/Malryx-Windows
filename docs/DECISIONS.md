@@ -132,3 +132,8 @@ fonctions, sans s'arrêter à chaque jalon).
 - Ajouts pour le run final : inspection des artefacts construits
   (chaînes interdites dans backend exe + installateur) et bundle
   allégé (UserManual ClamAV exclu).
+
+- Audit artefacts, 1re passe : FAIL sur `api_key` dans le backend exe —
+  faux positif de mon motif : c'est l'identifiant du moteur VirusTotal
+  (clé optionnelle de l'utilisateur), aucune valeur. Motifs resserrés
+  sur les valeurs (préfixes de clés, affectation avec valeur longue).
