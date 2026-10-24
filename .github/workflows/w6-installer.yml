@@ -56,6 +56,34 @@ jobs:
           Remove-Item -Recurse -Force staging/clamav/UserManual -ErrorAction SilentlyContinue
           Write-Host "clamav bundle : $((Get-ChildItem -Recurse staging/clamav).Count) fichiers"
 
+      - name: Signature des binaires (certificat Atamsphrow)
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_SIGN_PFX_B64 }}
+          PFX_PASS: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+        run: |
+          if (-not $env:PFX_B64) { Write-Host "SIGN_BIN_VERDICT: SKIP (secrets absents)"; exit 0 }
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if (-not $signtool) { Write-Host "ECHEC: signtool introuvable"; exit 1 }
+          function Sign-File($file) {
+            & $signtool sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASS /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $file
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "horodatage indisponible pour $file, signature sans horodatage"
+              & $signtool sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASS /fd SHA256 $file
+              if ($LASTEXITCODE -ne 0) { Write-Host "ECHEC signature de $file"; exit 1 }
+            }
+          }
+          Sign-File "staging/app/malryx.exe"
+          Sign-File "staging/app/malryx-backend.exe"
+          foreach ($f in @("staging/app/malryx.exe", "staging/app/malryx-backend.exe")) {
+            $sig = Get-AuthenticodeSignature $f
+            Write-Host "$f : statut=$($sig.Status) signataire=$($sig.SignerCertificate.Subject)"
+            if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch "Atamsphrow") { Write-Host "ECHEC: signataire inattendu"; exit 1 }
+            if ($sig.Status -eq "HashMismatch" -or $sig.Status -eq "NotSigned") { Write-Host "ECHEC: signature invalide"; exit 1 }
+          }
+          Write-Host "SIGN_BIN_VERDICT: PASS"
+
       - name: Compilation de l'installateur (Inno Setup)
         shell: pwsh
         run: |
@@ -65,6 +93,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $setup = Get-Item dist\Malryx-Setup-1.0.0.exe
           Write-Host "INSTALLER_VERDICT: PASS ($($setup.Length) octets)"
+
+      - name: Signature de l'installateur (certificat Atamsphrow)
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_SIGN_PFX_B64 }}
+          PFX_PASS: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+        run: |
+          if (-not $env:PFX_B64) { Write-Host "SIGN_VERDICT: SKIP (secrets absents)"; exit 0 }
+          if (-not (Test-Path "$env:RUNNER_TEMP\sign.pfx")) {
+            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          }
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          $setup = "dist\Malryx-Setup-1.0.0.exe"
+          & $signtool sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASS /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $setup
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "horodatage indisponible, signature sans horodatage"
+            & $signtool sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASS /fd SHA256 $setup
+            if ($LASTEXITCODE -ne 0) { Write-Host "ECHEC signature de l'installateur"; exit 1 }
+          }
+          $sig = Get-AuthenticodeSignature $setup
+          Write-Host "installateur : statut=$($sig.Status) signataire=$($sig.SignerCertificate.Subject) horodatage=$([bool]$sig.TimeStamperCertificate)"
+          if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch "Atamsphrow") { Write-Host "ECHEC: signataire inattendu"; exit 1 }
+          Write-Host "SIGN_VERDICT: PASS"
 
       - name: Artefact installateur
         uses: actions/upload-artifact@v4

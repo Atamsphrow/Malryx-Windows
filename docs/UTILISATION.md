@@ -8,11 +8,14 @@ publicité, aucune télémétrie, aucun compte.
 ## Installation
 
 1. Lancez `Malryx-Setup-1.0.0.exe` et acceptez l'élévation administrateur.
-2. Windows SmartScreen affichera un avertissement « éditeur inconnu » :
-   la v1 n'est pas signée numériquement (un certificat coûte plusieurs
-   centaines d'euros par an). Cliquez « Informations complémentaires »
-   puis « Exécuter quand même » — uniquement si le fichier vient bien
-   de l'auteur du projet.
+2. L'installateur est signé par l'auteur (certificat auto-signé
+   « Atamsphrow », comme ses applications Android) : l'éditeur
+   s'affiche et l'intégrité du fichier est vérifiable, mais
+   SmartScreen affichera quand même un avertissement, car ce
+   certificat n'est pas délivré par une autorité commerciale
+   reconnue par Windows. Cliquez « Informations complémentaires »
+   puis « Exécuter quand même » — uniquement si le fichier vient
+   bien de l'auteur du projet.
 3. L'installateur télécharge les définitions ClamAV (plusieurs minutes
    selon la connexion), pose les exclusions Defender nécessaires à
    ClamAV, et enregistre deux tâches de démarrage : le moteur ClamAV et

@@ -150,3 +150,17 @@ fonctions, sans s'arrêter à chaque jalon).
   nom/icône définitifs, certificat de signature éventuel, décision de
   publication (le dépôt est privé, l'installateur est dans les
   artefacts du run 40043274039, rétention 14 jours).
+
+## 2026-10-24 — Signature auto-signée « Atamsphrow » (décision d'Atamsphrow : pas de certificat payant)
+
+- Certificat DÉDIÉ créé (CN=Atamsphrow, O=ENI, L=Fianarantsoa, C=MG,
+  RSA 2048, EKU Code Signing, valable jusqu'en 2054) — clé locale
+  ~/malryx-windows-release.pfx (jamais committée), mot de passe en
+  ~/.android/malryx-windows-release.pass, copie CI en secrets GitHub
+  WINDOWS_SIGN_PFX_B64 / WINDOWS_SIGN_PASSWORD. Ne pas toucher sans
+  instruction explicite, comme les clés Musync/Presence/Palimpseste.
+- La CI signe malryx.exe, malryx-backend.exe et l'installateur
+  (signtool, horodatage DigiCert quand joignable), puis la release
+  v1.0.0 est publiée avec l'installateur signé. Effet assumé :
+  éditeur affiché + intégrité, mais SmartScreen avertit toujours
+  (pas une autorité reconnue par Windows).
