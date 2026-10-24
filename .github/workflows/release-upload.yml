@@ -1,0 +1,34 @@
+# Attache l'installateur signe (artefact du run w6 40056305742) a la
+# release v1.0.0. Passe par le GITHUB_TOKEN du runner : l'upload direct
+# d'asset depuis la VM est refuse (le jeton d'acces ne couvre pas
+# uploads.github.com).
+name: release-upload
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Telecharger l'artefact du run signe
+        uses: actions/download-artifact@v4
+        with:
+          name: Malryx-Setup
+          run-id: 40056305742
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attacher l'installateur a la release v1.0.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -la
+          gh release upload v1.0.0 Malryx-Setup-1.0.0.exe --repo Atamsphrow/Malryx-Windows
+          gh release view v1.0.0 --repo Atamsphrow/Malryx-Windows \
+            --json assets --jq '.assets[] | "\(.name) \(.size) \(.state)"'
+          echo "RELEASE_UPLOAD_VERDICT: PASS"
