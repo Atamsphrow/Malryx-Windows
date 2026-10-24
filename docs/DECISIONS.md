@@ -137,3 +137,16 @@ fonctions, sans s'arrêter à chaque jalon).
   faux positif de mon motif : c'est l'identifiant du moteur VirusTotal
   (clé optionnelle de l'utilisateur), aucune valeur. Motifs resserrés
   sur les valeurs (préfixes de clés, affectation avec valeur longue).
+
+## 2026-10-24 — W6 CLOS. W0→W6 TERMINÉS : v1.0 livrée
+
+- Run final 40043274039 : INSTALLER_VERDICT PASS
+  (Malryx-Setup-1.0.0.exe, 156 501 973 octets), ARTIFACT_AUDIT PASS
+  (ferme le dernier point W5), SMOKE PASS (installation silencieuse,
+  backend en ligne), UNINSTALL PASS.
+- L'ordre permanent du 2026-10-23 est rempli : version utilisable,
+  similaire à AVG Free selon le replica-diff honnête
+  (replica/diff-final.md). Restent côté Atamsphrow : essai sur son PC,
+  nom/icône définitifs, certificat de signature éventuel, décision de
+  publication (le dépôt est privé, l'installateur est dans les
+  artefacts du run 40043274039, rétention 14 jours).
