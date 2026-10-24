@@ -164,3 +164,20 @@ fonctions, sans s'arrêter à chaque jalon).
   v1.0.0 est publiée avec l'installateur signé. Effet assumé :
   éditeur affiché + intégrité, mais SmartScreen avertit toujours
   (pas une autorité reconnue par Windows).
+
+## 2026-10-24 — Release v1.0.0 publiée, dépôt rendu public
+
+- Le quota Actions du dépôt privé était épuisé (échecs de jobs en 2 s,
+  zéro étape, y compris sur des workflows inchangés) : Atamsphrow a
+  choisi de rendre le dépôt PUBLIC → minutes illimitées, build signé
+  relancé vert (run 40056305742 : SIGN_BIN, SIGN, INSTALLER, AUDIT,
+  SMOKE, UNINSTALL tous PASS ; signature vérifiée aussi en local sur
+  l'artefact téléchargé, bloc PKCS signé « Atamsphrow »).
+- Release GitHub v1.0.0 publiée (tag sur 182e4d3) avec
+  Malryx-Setup-1.0.0.exe signé (156 515 304 octets, état uploaded).
+  L'upload direct d'asset depuis la VM étant refusé (jeton limité à
+  api.github.com), l'attachement passe par le workflow
+  release-upload.yml (token du runner).
+- Sauvegarde de la clé remise à Atamsphrow via liens privés expirants
+  (pfx + mot de passe + certificat public) ; originaux conservés en
+  local et en secrets GitHub.
