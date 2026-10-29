@@ -217,7 +217,15 @@ class ScanManager:
     # -- cycle de vie d'un scan --------------------------------------------- #
 
     def start(self, request: ScanRequest) -> ScanResult:
-        targets = self._resolve_targets(request)
+        # v1.0.1 : la resolution des cibles SMART/STARTUP (enumeration de la
+        # persistance et des processus) est longue sur un vrai PC et bloquait
+        # la reponse 202, ce qui faisait croire que le bouton ne faisait rien.
+        # Elle est donc differee dans le thread du job ; les autres types
+        # gardent la validation synchrone (404/422 immediats).
+        if request.type in (ScanType.SMART, ScanType.STARTUP):
+            targets = []
+        else:
+            targets = self._resolve_targets(request)
         options = self._merge_options(request.options)
         result = ScanResult(
             type=request.type,
@@ -315,8 +323,45 @@ class ScanManager:
 
     # -- execution ----------------------------------------------------------- #
 
+    def _resolve_deferred_targets(self, scan_type: ScanType) -> list[str]:
+        """Cibles des scans dont la resolution est differee dans le job."""
+        if scan_type == ScanType.STARTUP:
+            if IS_WINDOWS:
+                from core.persistence_windows import persistence_targets
+
+                return persistence_targets()
+            candidates = STARTUP_TARGETS + _user_startup_targets()
+            return [p for p in candidates if os.path.exists(p)]
+        return self._smart_targets()
+
     def _run_job(self, job: ScanJob) -> None:
         result = job.result
+        if result.type in (ScanType.SMART, ScanType.STARTUP)                 and not result.targets:
+            # Resolution differee (voir start) : un echec d'enumeration
+            # devient un scan en echec explique, pas un thread mort.
+            try:
+                result.targets = self._resolve_deferred_targets(result.type)
+                self.db.save_scan(result)
+            except Exception as exc:
+                result.status = ScanStatus.FAILED
+                result.errors.append(f"enumeration impossible : {exc}")
+                result.finished_at = time.time()
+                job.finished_monotonic = time.monotonic()
+                job.progress.status = result.status
+                job.progress.elapsed_s = round(
+                    job.finished_monotonic - job.started_monotonic, 2
+                )
+                self.db.save_scan(result)
+                self.bus.publish_threadsafe(
+                    events.EVT_SCAN_FINISHED,
+                    {
+                        "scan_id": result.id,
+                        "status": result.status.value,
+                        "summary": result.summary(),
+                        "errors": result.errors[:10],
+                    },
+                )
+                return
         removable = result.type == ScanType.USB
         engines = self.build_engines(job.options, removable=removable)
         result.engines_used = [e.source for e in engines]
@@ -424,9 +469,20 @@ class ScanManager:
                     add(proc.exe_path)
             except Exception as exc:
                 log.debug("smart scan : processus non listes (%s)", exc)
-        home = Path.home()
-        for folder in (home / "Downloads", home / "Téléchargements"):
-            add(str(folder))
+        # v1.0.1 : sous SYSTEM, Path.home() pointe vers systemprofile.
+        # Le scan intelligent doit couvrir les Telechargements/Temp de
+        # chaque utilisateur reel, comme le watcher temps reel.
+        homes = [Path.home()]
+        if IS_WINDOWS:
+            from core.platform_compat import iter_windows_user_homes
+
+            homes += iter_windows_user_homes()
+        for user_home in homes:
+            for folder in (user_home / "Downloads",
+                           user_home / "Téléchargements"):
+                add(str(folder))
+            if IS_WINDOWS:
+                add(str(user_home / "AppData" / "Local" / "Temp"))
         temp = os.environ.get("TEMP") if IS_WINDOWS else "/tmp"
         add(temp)
         return targets

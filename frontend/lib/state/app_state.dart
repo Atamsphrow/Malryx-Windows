@@ -247,15 +247,30 @@ class AppState extends ChangeNotifier {
 
   // -- rafraîchissements -------------------------------------------------- //
 
-  Future<void> refreshAll() async {
-    await Future.wait([
-      refreshStats(),
-      refreshDevices(),
-      refreshHistory(),
-      refreshQuarantine(),
-      refreshSettings(),
-      refreshCapabilities(),
-    ]);
+  /// Vrai pendant un rafraichissement : la barre du haut affiche un
+  /// indicateur au lieu de laisser croire que le bouton ne fait rien (v1.0.1).
+  bool refreshing = false;
+
+  Future<void> refreshAll({bool announce = false}) async {
+    if (refreshing) return;
+    refreshing = true;
+    notifyListeners();
+    try {
+      await Future.wait([
+        refreshStats(),
+        refreshDevices(),
+        refreshHistory(),
+        refreshQuarantine(),
+        refreshSettings(),
+        refreshCapabilities(),
+      ]);
+    } finally {
+      refreshing = false;
+      if (announce) {
+        _setNotice('Données rafraîchies.', isError: false);
+      }
+      notifyListeners();
+    }
   }
 
   Future<void> refreshStats() async {

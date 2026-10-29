@@ -126,7 +126,7 @@ else:
 
 @dataclass
 class Settings:
-    realtime_protection: bool = False
+    realtime_protection: bool = True
     autoscan_removable: bool = True
     virustotal_enabled: bool = False
     virustotal_api_key: str = ""

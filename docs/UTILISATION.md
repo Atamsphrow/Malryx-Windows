@@ -7,7 +7,7 @@ publicité, aucune télémétrie, aucun compte.
 
 ## Installation
 
-1. Lancez `Malryx-Setup-1.0.0.exe` et acceptez l'élévation administrateur.
+1. Lancez `Malryx-Setup-1.0.1.exe` et acceptez l'élévation administrateur.
 2. L'installateur est signé par l'auteur (certificat auto-signé
    « Atamsphrow », comme ses applications Android) : l'éditeur
    s'affiche et l'intégrité du fichier est vérifiable, mais

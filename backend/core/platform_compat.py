@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from .config import IS_LINUX, IS_WINDOWS
 
@@ -23,8 +24,46 @@ class UnsupportedPlatform(RuntimeError):
 
 def is_root() -> bool:
     if IS_WINDOWS:
-        return False
+        try:
+            import ctypes
+
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
     return os.geteuid() == 0
+
+
+def iter_windows_user_homes(
+    users_root: Path | None = None,
+) -> list[Path]:
+    """Profils utilisateurs reels sous Windows, meme quand le backend tourne
+    comme SYSTEM.
+
+    Sous SYSTEM, `Path.home()` pointe vers
+    `C:\\Windows\\System32\\config\\systemprofile`, dont les dossiers
+    (Telechargements, Bureau...) ne sont jamais ceux de l'utilisateur reel :
+    c'est ce qui rendait la protection temps reel silencieusement inefficace
+    (v1.0.1). On enumere donc les profils sous `<lecteur systeme>\\Users`.
+    """
+    if users_root is None:
+        drive = os.environ.get("SystemDrive", "C:")
+        users_root = Path(drive) / "Users"
+    skip = {"public", "default", "default user", "all users", "defaultapppool"}
+    homes: list[Path] = []
+    try:
+        entries = list(users_root.iterdir())
+    except OSError:
+        return []
+    for entry in entries:
+        if entry.name.lower() in skip:
+            continue
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:
+            continue
+        homes.append(entry)
+    return homes
 
 
 def require_linux(feature: str) -> None:

@@ -17,7 +17,36 @@ import 'widgets/common.dart';
 
 /// Point d'entree. `--scan <chemin>` (menu contextuel de l'Explorateur,
 /// raccourcis) demande l'analyse immediate de la cible passee.
+/// Journalise une erreur d'affichage Flutter dans un fichier local, sans
+/// jamais lever (la journalisation ne doit pas aggraver l'erreur).
+void _logFlutterError(FlutterErrorDetails details) {
+  try {
+    final base = Platform.environment['LOCALAPPDATA'] ??
+        Platform.environment['APPDATA'];
+    if (base == null) return;
+    final dir = Directory('$base/Malryx');
+    dir.createSync(recursive: true);
+    final file = File('${dir.path}/ui-errors.log');
+    file.writeAsStringSync(
+      '[${DateTime.now().toIso8601String()}] ${details.exceptionAsString()}\n'
+      '${details.stack ?? ''}\n',
+      mode: FileMode.append,
+    );
+  } catch (_) {}
+}
+
 void main(List<String> args) {
+  // v1.0.1 : en build release, une exception pendant le build affiche un
+  // ecran gris silencieux. On journalise l'erreur et on affiche un repli
+  // explicite avec un bouton de retour, au lieu du gris.
+  FlutterError.onError = (details) {
+    _logFlutterError(details);
+    FlutterError.dumpErrorToConsole(details);
+  };
+  ErrorWidget.builder = (details) {
+    _logFlutterError(details);
+    return const _DisplayErrorFallback();
+  };
   String? scanTarget;
   final index = args.indexOf('--scan');
   if (index != -1 && index + 1 < args.length) {
@@ -345,22 +374,107 @@ class _TopBar extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 12),
               child: Tooltip(
-                message: 'Lancé sans privilèges root : les fichiers système '
-                    'protégés ne pourront pas être lus. Lancez avec sudo pour '
-                    'un scan complet.',
-                child: Chip(
+                message: 'Le moteur tourne sans privilèges administrateur. '
+                    'Appuyez pour en savoir plus.',
+                child: ActionChip(
                   avatar: const Icon(Icons.person_outline, size: 16),
                   label: const Text('Utilisateur'),
                   visualDensity: VisualDensity.compact,
+                  onPressed: () => _showElevationDialog(context),
                 ),
               ),
             ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Tout rafraîchir',
-            onPressed: state.refreshAll,
-          ),
+          if (state.refreshing)
+            const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Tout rafraîchir',
+              onPressed: () => state.refreshAll(announce: true),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+/// Dialogue d'explication du statut d'elevation du moteur (v1.0.1 : le
+/// chip « Utilisateur » etait informatif mais non cliquable, et le texte
+/// parlait de sudo sur une machine Windows).
+void _showElevationDialog(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Privilèges du moteur'),
+      content: const Text(
+        "Le moteur d'analyse tourne sans privilèges administrateur : "
+        "certains fichiers système protégés ne pourront pas être lus. "
+        "Normalement, l'installateur lance le moteur comme service SYSTEM "
+        "au démarrage ; redémarrez l'ordinateur pour revenir à ce mode. "
+        "Un scan reste possible, avec des erreurs d'accès sur les fichiers "
+        "protégés.",
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Compris'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Repli affiché à la place d'un sous-arbre en échec de build : message
+/// explicite + retour à l'écran de lancement, au lieu de l'écran gris
+/// silencieux de Flutter en release (v1.0.1).
+class _DisplayErrorFallback extends StatelessWidget {
+  const _DisplayErrorFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline,
+                size: 40, color: SeverityPalette.medium),
+            const SizedBox(height: 16),
+            Text(
+              "Cette page n'a pas pu s'afficher.",
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "L'erreur a été consignée dans le journal de l'application. "
+              "Revenez à l'écran de lancement et réessayez.",
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: () {
+                final state = context.read<AppState>();
+                state.clearActiveScan();
+                state.clearSelectedScan();
+              },
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text("Retour à l'écran de scan"),
+            ),
+          ],
+        ),
       ),
     );
   }

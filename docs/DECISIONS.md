@@ -181,3 +181,33 @@ fonctions, sans s'arrêter à chaque jalon).
 - Sauvegarde de la clé remise à Atamsphrow via liens privés expirants
   (pfx + mot de passe + certificat public) ; originaux conservés en
   local et en secrets GitHub.
+
+## 2026-10-29 — Correctifs v1.0.1 (verdict d'essai sur le PC d'Atamsphrow)
+
+- Verdict reçu 00:09 EAT : 4 bugs — eicar.com dans Téléchargements NON
+  détecté malgré le bouclier temps réel activé, scan intelligent difficile
+  à démarrer, page Scan grise après « Terminer », boutons Utilisateur /
+  refresh inopérants. Méthode ≥3 avis appliquée avant toute modification
+  (code réel lu directement + GPT via Groq + Gemini, tous d'accord, aucun
+  désaccord ; DeepSeek 3× vide, Orca/OpenRouter limités, Ashna/OpenAI/
+  Perplexity bloqués côté coffre — pas de 3e avis IA complet).
+- Bug 1 (cause confirmée par le test : bouclier ON + Téléchargements) :
+  le backend SYSTEM surveillait systemprofile via Path.home(). Correctif :
+  `iter_windows_user_homes()` (profils C:\Users, hors Public/Default)
+  utilisé par le watcher temps réel et par les cibles du scan intelligent ;
+  protection temps réel activée par défaut (frais installs seulement, les
+  réglages sauvegardés priment).
+- Bug 2 : la résolution des cibles SMART/STARTUP (persistance + processus)
+  bloquait la réponse 202. Correctif : résolution différée dans le thread
+  du job (202 immédiat, vue d'exécution visible aussitôt) ; un échec
+  d'énumération devient un scan en échec expliqué, pas un thread mort.
+- Bug 3 : en release, une exception de build = écran gris silencieux.
+  Correctif : `FlutterError.onError` + `ErrorWidget.builder` journalisent
+  dans %LOCALAPPDATA%\Malryx\ui-errors.log et affichent un repli explicite
+  avec retour à l'écran de scan. Le widget fautif exact reste à confirmer
+  par le journal si le cas se reproduit.
+- Bug 4 : `is_root()` retournait toujours False sur Windows (codé en dur)
+  et le chip « Utilisateur » n'était pas cliquable. Correctif :
+  `IsUserAnAdmin()` via ctypes, chip tactile → dialogue d'explication,
+  indicateur + notice « Données rafraîchies » sur le refresh.
+- Versions : pubspec 1.0.1+2, installateur Malryx-Setup-1.0.1.exe.

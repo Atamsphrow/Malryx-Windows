@@ -80,6 +80,22 @@ def get_monitored_directories() -> list[str]:
                 Path(appdata) / "Microsoft" / "Windows" / "Start Menu"
                 / "Programs" / "Startup"
             )
+        # v1.0.1 : sous SYSTEM, Path.home()/TEMP/APPDATA pointent vers
+        # systemprofile, pas vers l'utilisateur reel. On ajoute donc les
+        # dossiers de chaque profil reel (C:\Users\...), sinon la
+        # protection temps reel reste silencieusement inefficace.
+        from core.platform_compat import iter_windows_user_homes
+
+        for user_home in iter_windows_user_homes():
+            dirs += [
+                user_home / "Downloads",
+                user_home / "Téléchargements",
+                user_home / "Desktop",
+                user_home / "Bureau",
+                user_home / "AppData" / "Roaming" / "Microsoft" / "Windows"
+                / "Start Menu" / "Programs" / "Startup",
+                user_home / "AppData" / "Local" / "Temp",
+            ]
     return [str(d.resolve()) for d in dirs if d.exists() and d.is_dir()]
 
 

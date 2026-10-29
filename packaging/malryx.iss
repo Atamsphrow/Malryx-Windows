@@ -4,7 +4,7 @@
 ;   ..\staging\app\      <- build Flutter Windows (malryx.exe + DLL + data)
 ;                           + malryx-backend.exe copie a cote
 ;   ..\staging\clamav\   <- binaires ClamAV officiels (arbre Chocolatey)
-; Sortie : ..\dist\Malryx-Setup-1.0.0.exe
+; Sortie : ..\dist\Malryx-Setup-1.0.1.exe
 ;
 ; A l'installation (section [Run], dans l'ordre) :
 ;   1. generation de clamd.conf / freshclam.conf avec les chemins reels ;
@@ -14,7 +14,7 @@
 ;   5. lancement propose de l'interface.
 
 #define AppName "Malryx"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Atamsphrow"
 
 [Setup]
