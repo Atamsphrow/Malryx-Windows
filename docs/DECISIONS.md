@@ -216,3 +216,4 @@ fonctions, sans s'arrêter à chaque jalon).
   rien ne lance clamd à l'installation) → moteur ClamAV « non installé »
   sans redémarrage. Correctif : `schtasks /Run` sur MalryxClamd et
   MalryxBackend juste après freshclam, avant le lancement de l'interface.
+- v1.0.2 (lancée 2026-10-29 16:15 EAT, avis Groq + Gemini confrontés) : (a) plantage vues Menaces/Quarantaine = LocaleDataException, DateFormat fr_FR sans initializeDateFormatting → `await initializeDateFormatting('fr_FR')` dans main() ; (b) configs ClamAV mono-ligne → écriture Pascal Inno via BeforeInstall sur l'entrée freshclam (la section [Run] s'exécute AVANT ssPostInstall — les deux IA se trompaient sur ce point, doc officielle faisant foi) + RaiseException si l'écriture échoue ; (c) smoke test w6 : vérification configs multi-lignes + PONG clamd. Versions : pubspec 1.0.2+3, AppVersion 1.0.2.

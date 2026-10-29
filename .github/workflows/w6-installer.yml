@@ -1,5 +1,5 @@
 # W6 Malryx for Windows - installateur Inno Setup + test d'installation.
-# Produit dist/Malryx-Setup-1.0.1.exe (artefact du job), l'installe en
+# Produit dist/Malryx-Setup-1.0.2.exe (artefact du job), l'installe en
 # silencieux sur le runner, verifie /api/health, puis desinstalle.
 name: w6-installer
 
@@ -91,7 +91,7 @@ jobs:
           if (-not (Test-Path $iscc)) { $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" | Select-Object -First 1).FullName }
           & $iscc packaging\malryx.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          $setup = Get-Item dist\Malryx-Setup-1.0.1.exe
+          $setup = Get-Item dist\Malryx-Setup-1.0.2.exe
           Write-Host "INSTALLER_VERDICT: PASS ($($setup.Length) octets)"
 
       - name: Signature de l'installateur (certificat Atamsphrow)
@@ -105,7 +105,7 @@ jobs:
             [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:PFX_B64))
           }
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
-          $setup = "dist\Malryx-Setup-1.0.1.exe"
+          $setup = "dist\Malryx-Setup-1.0.2.exe"
           & $signtool sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASS /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $setup
           if ($LASTEXITCODE -ne 0) {
             Write-Host "horodatage indisponible, signature sans horodatage"
@@ -121,14 +121,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Malryx-Setup
-          path: dist/Malryx-Setup-1.0.1.exe
+          path: dist/Malryx-Setup-1.0.2.exe
           retention-days: 14
 
       - name: Inspection des artefacts (secrets, chemins de dev)
         shell: pwsh
         run: |
           $bad = @()
-          $targets = @("staging/app/malryx-backend.exe", "dist/Malryx-Setup-1.0.1.exe")
+          $targets = @("staging/app/malryx-backend.exe", "dist/Malryx-Setup-1.0.2.exe")
           foreach ($f in $targets) {
             $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $f))
             $text = [System.Text.Encoding]::ASCII.GetString($bytes)
@@ -148,7 +148,7 @@ jobs:
       - name: "Smoke test : installation silencieuse + backend en ligne"
         shell: pwsh
         run: |
-          $setup = (Resolve-Path dist\Malryx-Setup-1.0.1.exe).Path
+          $setup = (Resolve-Path dist\Malryx-Setup-1.0.2.exe).Path
           $proc = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru -Wait
           Write-Host "code retour installateur : $($proc.ExitCode)"
           if ($proc.ExitCode -ne 0) { Write-Host "ECHEC installation"; exit 1 }
@@ -170,6 +170,27 @@ jobs:
             } catch {}
           }
           if (-not $ok) { Write-Host "ECHEC: backend muet apres installation"; exit 1 }
+          # v1.0.2 : les configs doivent etre multi-lignes (une directive par
+          # ligne), sinon ClamAV ne parse que la premiere (bug constate en v1.0.1).
+          if (-not (Select-String -Path "$app\clamav\clamd.conf" -Pattern "^TCPSocket 3310$" -Quiet)) { Write-Host "ECHEC: clamd.conf mono-ligne ou TCPSocket absent"; exit 1 }
+          if (-not (Select-String -Path "$app\clamav\freshclam.conf" -Pattern "^DatabaseMirror database.clamav.net$" -Quiet)) { Write-Host "ECHEC: freshclam.conf mono-ligne ou DatabaseMirror absent"; exit 1 }
+          Write-Host "configs ClamAV multi-lignes OK"
+          # clamd doit repondre PONG (les bases viennent d'etre telechargees par freshclam a l'installation).
+          $pong = $false
+          foreach ($i in 1..20) {
+            try {
+              $c = New-Object System.Net.Sockets.TcpClient('127.0.0.1', 3310)
+              $s = $c.GetStream()
+              $w = New-Object System.IO.StreamWriter($s); $w.WriteLine('PING'); $w.Flush()
+              $r = New-Object System.IO.StreamReader($s); $resp = $r.ReadLine()
+              $c.Close()
+              if ($resp -eq 'PONG') { $pong = $true; break }
+              Write-Host "clamd a repondu : $resp (attendu PONG)"
+            } catch { Write-Host "clamd injoignable, nouvel essai..." }
+            Start-Sleep -Seconds 3
+          }
+          if (-not $pong) { Write-Host "ECHEC: clamd ne repond pas PONG apres installation"; exit 1 }
+          Write-Host "CLAMD_PONG_VERDICT: PASS"
           Write-Host "SMOKE_VERDICT: PASS"
 
       - name: "Smoke test : desinstallation propre"

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 import 'models/scan_result.dart';
@@ -35,7 +36,12 @@ void _logFlutterError(FlutterErrorDetails details) {
   } catch (_) {}
 }
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // v1.0.2 : les DateFormat('fr_FR') de formatters.dart exigent les symboles
+  // de dates intl, sinon LocaleDataException au premier rendu d'une menace
+  // ou d'un element de quarantaine (constate en essai v1.0.1).
+  await initializeDateFormatting('fr_FR');
   // v1.0.1 : en build release, une exception pendant le build affiche un
   // ecran gris silencieux. On journalise l'erreur et on affiche un repli
   // explicite avec un bouton de retour, au lieu du gris.
