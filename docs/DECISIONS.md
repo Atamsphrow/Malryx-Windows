@@ -211,3 +211,8 @@ fonctions, sans s'arrêter à chaque jalon).
   `IsUserAnAdmin()` via ctypes, chip tactile → dialogue d'explication,
   indicateur + notice « Données rafraîchies » sur le refresh.
 - Versions : pubspec 1.0.1+2, installateur Malryx-Setup-1.0.1.exe.
+- Ajout v1.0.1 (question d'Atamsphrow 05:30 EAT) : l'installateur ne
+  démarrait pas clamd (tâches ONSTART = prochain redémarrage seulement,
+  rien ne lance clamd à l'installation) → moteur ClamAV « non installé »
+  sans redémarrage. Correctif : `schtasks /Run` sur MalryxClamd et
+  MalryxBackend juste après freshclam, avant le lancement de l'interface.

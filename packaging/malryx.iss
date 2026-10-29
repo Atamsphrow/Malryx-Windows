@@ -94,6 +94,16 @@ Filename: "{app}\clamav\freshclam.exe"; \
   Parameters: "--config-file=""{app}\clamav\freshclam.conf"""; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "Téléchargement des définitions antivirus (peut prendre plusieurs minutes)..."
+; 3b. Demarrage immediat (v1.0.1) : sans cela, clamd et le backend
+; n'attendent que le prochain redemarrage, d'ou un moteur ClamAV
+; « non installe » apres une installation sans redemarrage. L'ordre
+; compte : apres freshclam (etape 4), donc avec les bases presentes.
+Filename: "schtasks.exe"; \
+  Parameters: "/Run /TN MalryxClamd"; \
+  Flags: runhidden waituntilterminated
+Filename: "schtasks.exe"; \
+  Parameters: "/Run /TN MalryxBackend"; \
+  Flags: runhidden waituntilterminated
 ; 5. Lancement propose en fin d'installation.
 Filename: "{app}\malryx.exe"; Description: "Lancer Malryx"; \
   Flags: nowait postinstall skipifsilent
