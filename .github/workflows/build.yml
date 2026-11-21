@@ -1,0 +1,67 @@
+name: Compiler Malryx
+
+on:
+  workflow_dispatch:        # NEUTRE (copie sur main, découverte GitHub uniquement) :
+                            # le vrai workflow tourne depuis la branche opus-qt-2.3.0.
+                            # Pas de déclenchement par tag ici : un tag v* sur main ne doit
+                            # jamais lancer le build Qt (le code Qt n'est pas sur main).
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      MALRYX_PFX: ${{ secrets.WINDOWS_SIGN_PFX_B64 }}           # clé Atamsphrow (auto-signée CN=Atamsphrow), comme la ligne Flutter
+      MALRYX_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cohérence de la version
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ($env:GITHUB_REF -like "refs/tags/v*" -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "Le tag $env:GITHUB_REF_NAME ne correspond pas au fichier VERSION ($v)."
+          }
+          "Malryx $v"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: ilammy/msvc-dev-cmd@v1      # compilateur C : bootloader PyInstaller + pilote
+
+      - name: Pilote noyau (optionnel)
+        continue-on-error: true
+        shell: pwsh
+        run: cmd /c driver\build-driver.cmd
+
+      - name: Compilation (exe portable + installateur)
+        shell: pwsh
+        run: ./build.ps1 -MirrorRepo "${{ github.repository }}"
+
+      - name: Empreintes
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File -Filter *.exe | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.Name } |
+            Out-File dist/SHA256SUMS.txt -Encoding ascii
+          if (Test-Path driver/x64/MalryxFlt.sys) { Compress-Archive driver/x64/MalryxFlt.sys, driver/MalryxFlt.inf, driver/install-driver.ps1 dist/MalryxFlt-pilote.zip -Force }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Malryx
+          path: |
+            dist/*.exe
+            dist/*.txt
+            dist/*.zip
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.txt
+            dist/*.zip
