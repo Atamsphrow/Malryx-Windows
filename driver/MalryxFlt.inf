@@ -1,0 +1,67 @@
+;
+; MalryxFlt.inf — pilote noyau Malryx (minifiltre, blocage avant exécution)
+;
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = "AntiVirus"
+ClassGuid   = {b1d1a169-c54f-4379-81db-bee7d88d7454}
+Provider    = %ManufacturerName%
+DriverVer   = 11/21/2026,3.0.0.0
+CatalogFile = MalryxFlt.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir          = 13
+MalryxFlt.DriverFiles   = 13
+
+[DefaultInstall.NTamd64]
+OptionDesc  = %ServiceDescription%
+CopyFiles   = MalryxFlt.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService  = %ServiceName%,,MalryxFlt.Service
+
+[DefaultUninstall.NTamd64]
+LegacyUninstall = 1
+DelFiles        = MalryxFlt.DriverFiles
+
+[DefaultUninstall.NTamd64.Services]
+DelService  = %ServiceName%,0x200
+
+[MalryxFlt.Service]
+DisplayName     = %ServiceName%
+Description     = %ServiceDescription%
+ServiceBinary   = %13%\%DriverName%.sys
+Dependencies    = "FltMgr"
+ServiceType     = 2                 ; SERVICE_FILE_SYSTEM_DRIVER
+StartType       = 3                 ; SERVICE_DEMAND_START (démarré par Malryx / fltmc load)
+ErrorControl    = 1
+LoadOrderGroup  = "FSFilter Anti-Virus"
+AddReg          = MalryxFlt.AddRegistry
+
+[MalryxFlt.AddRegistry]
+HKR,"Instances","DefaultInstance",0x00000000,%DefaultInstance%
+HKR,"Instances\"%Instance1.Name%,"Altitude",0x00000000,%Instance1.Altitude%
+HKR,"Instances\"%Instance1.Name%,"Flags",0x00010001,%Instance1.Flags%
+
+[MalryxFlt.DriverFiles]
+%DriverName%.sys
+
+[SourceDisksFiles]
+MalryxFlt.sys = 1,,
+
+[SourceDisksNames]
+1 = %DiskId1%,,,
+
+[Strings]
+ManufacturerName    = "Malryx"
+ServiceDescription  = "Malryx - blocage des malwares avant execution"
+ServiceName         = "MalryxFlt"
+DriverName          = "MalryxFlt"
+DiskId1             = "Malryx Driver Disk"
+DefaultInstance     = "MalryxFlt Instance"
+Instance1.Name      = "MalryxFlt Instance"
+; Altitude de test dans la plage FSFilter Anti-Virus (320000-329999).
+; Pour une distribution publique, demander une altitude officielle à Microsoft (fsfcomm@microsoft.com).
+Instance1.Altitude  = "328910"
+Instance1.Flags     = 0x0

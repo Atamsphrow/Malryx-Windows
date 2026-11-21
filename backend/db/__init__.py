@@ -1,1 +1,0 @@
-"""Package db de Malryx."""

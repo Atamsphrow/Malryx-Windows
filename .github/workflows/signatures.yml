@@ -2,14 +2,14 @@ name: Signatures Malryx (miroir quotidien)
 
 # Publie chaque jour, dans la release « signatures » de ce dépôt :
 #   bases ClamAV officielles (cvdupdate), base de hashes Malryx, YARA Forge core, liste URLhaus.
-# L'application s'en sert quand les serveurs ClamAV sont injoignables (DNS bloqué, limite du CDN).
+# + le pack hors ligne signé « malryx-signatures-AAAAMMJJ.zip » (et « -latest.zip ») à copier sur clé USB
+#   pour mettre à jour Malryx sans Internet.
 # Le dépôt doit être PUBLIC pour que l'application puisse télécharger sans authentification.
 
 on:
-  workflow_dispatch:        # NEUTRE (copie sur main, découverte GitHub uniquement) :
-                            # le vrai workflow tourne depuis la branche opus-qt-2.3.0.
-                            # Pas de planning ici : un run quotidien sur main échouerait
-                            # (tools/build_signatures.py n'existe pas sur main).
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,7 +33,10 @@ jobs:
           MB_AUTH_KEY: ${{ secrets.MB_AUTH_KEY }}            # clé gratuite abuse.ch (facultative mais recommandée)
           MB_EXPORT_URL: ${{ vars.MB_EXPORT_URL }}            # facultatif : URL d'export si elle change
           EXTRA_HASH_URLS: ${{ vars.EXTRA_HASH_URLS }}        # facultatif : autres listes de hashes
-        run: python tools/build_signatures.py --out dist-sig --clamav
+          MALRYX_PACK_KEY: ${{ secrets.MALRYX_PACK_KEY }}    # signature des packs (tools/gen_pack_key.py)
+        run: |
+          pip install cryptography
+          python tools/build_signatures.py --out dist-sig --clamav --pack
       - name: Publication (release « signatures »)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -42,3 +45,6 @@ jobs:
             gh release create signatures --title "Signatures Malryx" --latest=false \
               --notes "Mises à jour automatiques des signatures (quotidiennes). Ne pas supprimer : utilisé par l'application."
           gh release upload signatures dist-sig/* --clobber
+          # ne garder que les 7 derniers packs datés
+          gh release view signatures --json assets -q '.assets[].name' | grep -E '^malryx-signatures-[0-9]{8}\.zip$' | sort -r | tail -n +8 | \
+            xargs -r -I{} gh release delete-asset signatures {} -y

@@ -1,10 +1,9 @@
 name: Compiler Malryx
 
 on:
-  workflow_dispatch:        # NEUTRE (copie sur main, découverte GitHub uniquement) :
-                            # le vrai workflow tourne depuis la branche opus-qt-2.3.0.
-                            # Pas de déclenchement par tag ici : un tag v* sur main ne doit
-                            # jamais lancer le build Qt (le code Qt n'est pas sur main).
+  workflow_dispatch:        # bouton « Run workflow » dans l'onglet Actions
+  push:
+    tags: ["v*"]            # git tag v$(cat VERSION) && git push --tags  → release avec l'exe et l'installateur
 
 permissions:
   contents: write

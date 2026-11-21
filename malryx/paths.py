@@ -1,0 +1,108 @@
+"""Chemins : ressources embarquées dans l'exe (PyInstaller) et dossier de données utilisateur."""
+import os
+import shutil
+import sys
+from pathlib import Path
+
+APP_NAME = "Malryx"
+def _read_version():
+    """Source unique : le fichier VERSION à la racine (embarqué dans l'exe)."""
+    import sys as _s
+    base = Path(getattr(_s, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    try:
+        return (base / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return "0.0.0"
+
+
+VERSION = _read_version()
+IS_WIN = sys.platform == "win32"
+FROZEN = getattr(sys, "frozen", False)
+
+
+def resource(*parts):
+    """Fichier embarqué (dans l'exe) ou dans le dossier source en développement."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return base.joinpath(*parts)
+
+
+def data_dir(*parts):
+    root = Path(os.environ.get("LOCALAPPDATA", Path.home())) if IS_WIN else Path.home() / ".local" / "share"
+    d = root / APP_NAME
+    d.mkdir(parents=True, exist_ok=True)
+    p = d.joinpath(*parts)
+    if not parts or not p.suffix:
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _copy_tree_if_new(src, dst, stamp):
+    """Copie un dossier embarqué vers AppData une seule fois par version."""
+    src, dst = Path(src), Path(dst)
+    if not src.exists():
+        return False
+    marker = dst / ".version"
+    if marker.exists() and marker.read_text() == stamp:
+        return True
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.rglob("*"):
+        if f.is_file():
+            target = dst / f.relative_to(src)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(f, target)
+            except PermissionError:  # binaire en cours d'utilisation
+                pass
+    marker.write_text(stamp)
+    return True
+
+
+def _cvd_version(p):
+    try:
+        with open(p, "rb") as f:
+            return int(f.read(512).decode("ascii", "ignore").split(":")[2])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def _manifest_date(d):
+    import json
+    try:
+        return json.loads((Path(d) / "manifest.json").read_text(encoding="utf-8")).get("generated", "")
+    except (OSError, ValueError):
+        return ""
+
+
+def install_vendor(progress=lambda m: None):
+    """Installe dans %LOCALAPPDATA%\\Malryx tout ce qui est embarqué dans l'exe : binaires (adb, clamd) et
+    signatures (ClamAV, base de hashes, YARA, liste Web). Rien n'est téléchargé.
+    Les signatures embarquées ne remplacent les signatures installées que si elles sont PLUS RÉCENTES
+    (un pack importé par clé USB n'est jamais écrasé par l'exe d'origine)."""
+    _copy_tree_if_new(resource("vendor", "adb"), data_dir("bin", "adb"), VERSION)
+    _copy_tree_if_new(resource("vendor", "clamav"), data_dir("bin", "clamav"), VERSION)
+    db, emb_db = data_dir("clamav-db"), resource("vendor", "clamav-db")
+    if emb_db.exists():
+        for f in emb_db.glob("*.cvd"):
+            stem = f.stem
+            cur = max(_cvd_version(db / f"{stem}.cvd"), _cvd_version(db / f"{stem}.cld"))
+            if _cvd_version(f) > cur:
+                progress(f"Installation des signatures ClamAV ({f.name})…")
+                shutil.copy2(f, db / f.name)
+                (db / f"{stem}.cld").unlink(missing_ok=True)
+    emb_sig, sig = resource("signatures"), data_dir("signatures")
+    if emb_sig.exists() and _manifest_date(emb_sig) > _manifest_date(sig):
+        progress("Installation de la base de signatures Malryx…")
+        for f in emb_sig.rglob("*"):
+            if f.is_file():
+                target = sig / f.relative_to(emb_sig)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
+
+
+def find_tool(name, sub):
+    """Cherche d'abord la version embarquée, puis le PATH."""
+    exe = name + (".exe" if IS_WIN else "")
+    for cand in (data_dir("bin", sub) / exe, resource("vendor", sub) / exe):
+        if cand.exists():
+            return str(cand)
+    return shutil.which(name)
