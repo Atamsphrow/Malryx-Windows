@@ -1,0 +1,43 @@
+name: Signatures Malryx (miroir quotidien)
+
+# Publie chaque jour, dans la release « signatures » de ce dépôt :
+#   bases ClamAV officielles (cvdupdate), base de hashes Malryx, YARA Forge core, liste URLhaus.
+# L'application s'en sert quand les serveurs ClamAV sont injoignables (DNS bloqué, limite du CDN).
+# Le dépôt doit être PUBLIC pour que l'application puisse télécharger sans authentification.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signatures
+  cancel-in-progress: false
+
+jobs:
+  signatures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Outils
+        run: pip install yara-python cvdupdate
+      - name: Construction du paquet
+        env:
+          MB_AUTH_KEY: ${{ secrets.MB_AUTH_KEY }}            # clé gratuite abuse.ch (facultative mais recommandée)
+          MB_EXPORT_URL: ${{ vars.MB_EXPORT_URL }}            # facultatif : URL d'export si elle change
+          EXTRA_HASH_URLS: ${{ vars.EXTRA_HASH_URLS }}        # facultatif : autres listes de hashes
+        run: python tools/build_signatures.py --out dist-sig --clamav
+      - name: Publication (release « signatures »)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view signatures >/dev/null 2>&1 || \
+            gh release create signatures --title "Signatures Malryx" --latest=false \
+              --notes "Mises à jour automatiques des signatures (quotidiennes). Ne pas supprimer : utilisé par l'application."
+          gh release upload signatures dist-sig/* --clobber

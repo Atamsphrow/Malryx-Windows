@@ -1,1 +1,0 @@
-"""Package api de Malryx."""

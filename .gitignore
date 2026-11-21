@@ -1,0 +1,7 @@
+vendor/
+signatures/
+dist-sig/
+build/
+dist/
+__pycache__/
+*.pyc
